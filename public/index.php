@@ -5,49 +5,28 @@ declare(strict_types=1);
 if (!extension_loaded('pdo') || !extension_loaded('pdo_mysql')) {
     http_response_code(503);
     header('Content-Type: text/plain; charset=utf-8');
-    echo 'This app needs the PDO and pdo_mysql extensions enabled for the web PHP build ('
-        . PHP_SAPI . ', PHP ' . PHP_VERSION . ").\n"
-        . "CLI can differ from Apache/FPM—enable MySQL PDO in the control panel, then remove public/health.php after checks.\n";
+    echo 'This app needs the pdo and pdo_mysql PHP extensions enabled for the web site.' . "\n";
     exit;
 }
 
 $projectRoot = dirname(__DIR__);
-$showErrorDetail = is_file($projectRoot . DIRECTORY_SEPARATOR . '.show-fatal-errors');
 
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'env.php';
-if (filter_var((string) env('APP_DEBUG', ''), FILTER_VALIDATE_BOOLEAN)) {
+$showErrorDetail = filter_var((string) env('APP_DEBUG', ''), FILTER_VALIDATE_BOOLEAN);
+if ($showErrorDetail) {
     ini_set('display_errors', '1');
     ini_set('display_startup_errors', '1');
     ini_set('html_errors', '0');
     error_reporting(E_ALL);
-    $showErrorDetail = true;
-}
-
-if ($showErrorDetail) {
-    register_shutdown_function(static function (): void {
-        $e = error_get_last();
-        if ($e === null) {
-            return;
-        }
-        if (!in_array((int) $e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
-            return;
-        }
-        if (headers_sent()) {
-            return;
-        }
-        http_response_code(500);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo "PHP fatal error:\n\n" . $e['message'] . "\n\n" . $e['file'] . ':' . $e['line'] . "\n";
-    });
 }
 
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'security_headers.php';
 security_headers();
 
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'session.php';
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'csrf.php';
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'view.php';
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'db.php';
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'session.php';
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'csrf.php';
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'view.php';
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'db.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);

@@ -8,7 +8,7 @@ A small PHP application to support **direct private lending** workflows (borrowe
 
 ## Requirements
 
-- **PHP** 8.1+ for the **web** SAPI (Apache/mod_php or PHP-FPM), with extensions: `pdo`, `pdo_mysql`, `session`, `json`. The version shown by `php -v` or `php8.4-cli -v` in SSH is often **CLI only**—set the PHP version for the domain in your hosting control panel.
+- **PHP** 8.1+ with extensions `pdo`, `pdo_mysql`, `session`, and `json`. In the control panel, pick that version for the **domain** (not only for SSH/CLI).
 - **MySQL** 8.x (or compatible) with a database you control
 - A web server that can run PHP and, for clean URLs, **rewrite** requests to `public/index.php` (Apache `mod_rewrite` is configured in `public/.htaccess`)
 
@@ -38,7 +38,7 @@ Edit `.env` and set at least:
 | `DB_USER` | MySQL user         |
 | `DB_PASS` | MySQL password     |
 
-`APP_ENV` / `APP_DEBUG` are present for future use; the app does not depend on them today.
+`APP_ENV` is optional. **`APP_DEBUG=true`** turns on on-screen PHP errors (use only while debugging). **`DISABLE_CSP=true`** skips the Content-Security-Policy header if your host objects to it.
 
 ### 3. Create the database
 
@@ -64,7 +64,7 @@ This creates `schema_migrations` (if needed) and applies all `migrations/*.sql` 
 
 **Document root** must be the `public/` directory so that `app/`, `bin/`, `migrations/`, and `.env` are **not** directly web-accessible.
 
-- **Apache:** set `DocumentRoot` to `.../priv-lending/public` and ensure `AllowOverride` permits `.htaccess` (for rewrites and deny rules).
+- **Apache:** set `DocumentRoot` to `.../priv-lending/public` and ensure `AllowOverride` allows `.htaccess` (only needs `FileInfo` for the small rewrite block in `public/.htaccess`).
 - **nginx:** use `root .../priv-lending/public;` and a `try_files` rule that forwards non-files to `index.php` (mirror the intent of `public/.htaccess`).
 
 ### 6. Sign in and use the app
@@ -86,21 +86,13 @@ This creates `schema_migrations` (if needed) and applies all `migrations/*.sql` 
 
 The built-in server (`php -S`) does **not** read `.htaccess`. Path-based routes like `/login` will not resolve unless you add a small router script or use Apache/nginx. For day-to-day local work, use Apache, nginx, or a tool that supports rewrite rules (e.g. Laravel Herd, MAMP, Docker with Apache/nginx).
 
-### HTTP 500 on shared hosting (IONOS, etc.)
+### Simple debugging
 
-1. **Web PHP is not the same as CLI PHP.** A shell command like `php8.4-cli -v` only shows the **CLI** binary. Apache may still run an older PHP for `.php` files. In your host’s control panel, set the domain (or subdirectory) to **PHP 8.1 or newer** for the site that serves `priv-lending`.
-
-2. **Document root** must be the **`public/`** folder inside the project (not the repo root). If Apache’s document root is wrong, rewrites and `index.php` may never run correctly.
-
-3. **Read the real error.** In IONOS Linux hosting, check **Logs** in the panel or files such as `~/logs/error.log` (exact path varies). The log line immediately after your request usually names the cause (e.g. unknown function, parse error, `Options not allowed here`).
-
-4. **Extensions.** Ensure **`pdo`** and **`pdo_mysql`** are enabled for the **web** PHP version (not only CLI). Many panels expose a separate “PHP extensions” or “modules” list per domain.
-
-5. **Quick probe.** With the app deployed, open **`/health.php`** on the same host. You should see `PHP 8.x`, `SAPI ...` (often `fpm` or `apache2handler`), and both extensions `yes`. If `pdo_mysql` is `no`, enable it for the site PHP and reload. **Delete `public/health.php` when you are done** so it is not left exposed.
-
-6. **Still HTTP 500 with extensions OK?** Set **`APP_DEBUG=true`** in `.env`, reload once, and read the **PHP error message** shown in the browser (then set **`APP_DEBUG=false`** again). Common causes: the default **session save path** is not writable on shared hosting (this app falls back to **`sys_get_temp_dir()`** when needed), or TLS is terminated in front of PHP so **`HTTP_X_FORWARDED_PROTO`** must be honored for secure cookies (handled in `session.php`).
-
-7. **If you still only see a generic Apache 500 page:** create an empty file **`/.show-fatal-errors`** in the project root (next to `.env`), reload `/login`, and you should get a **plain-text “PHP fatal error”** line in the browser—remove that file afterward. You can also set **`DISABLE_CSP=true`** in `.env` temporarily to see if your host’s firewall dislikes the `Content-Security-Policy` header.
+1. **Document root** = the **`public/`** folder (the one that contains `index.php` and `.htaccess`).
+2. **`public/.htaccess`** should only send unknown URLs to `index.php` (no long rule chains).
+3. Put **`APP_DEBUG=true`** in `.env`, reload `/login`, read any **PHP message** on the page, then set **`APP_DEBUG=false`** again.
+4. In the IONOS panel, open the **error / access log** for the domain and find the line for the same second you hit the site.
+5. Optional: open **`/health.php`** once to confirm PHP version and `pdo_mysql`; delete that file when finished.
 
 ---
 

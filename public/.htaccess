@@ -1,24 +1,5 @@
-# Do not use "Options" here: on many hosts AllowOverride omits Options and Apache returns 500.
-
 <IfModule mod_rewrite.c>
     RewriteEngine On
-
-    RewriteCond %{REQUEST_URI} (^|/)\.env($|\.) [NC,OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.git($|/) [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.svn($|/) [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.hg($|/) [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.bzr($|/) [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.gitignore$ [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.gitattributes$ [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.gitmodules$ [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.npmrc$ [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.yarnrc$ [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.gitlab-ci\.yml$ [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.envrc$ [OR]
-    RewriteCond %{REQUEST_URI} (^|/)\.htpasswd$
-    RewriteRule .* - [F,L]
-
-    RewriteRule ^(app|bin|migrations|storage)(/|$) - [F,L]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [L,QSA]
