@@ -392,6 +392,26 @@ function loan_principal_and_annual_for_prepaid_save(string $principalRaw, string
 }
 
 /**
+ * Whether the current database has a column (cached per request).
+ */
+function schema_table_has_column(string $table, string $column): bool
+{
+    static $cache = [];
+
+    $key = $table . "\0" . $column;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+    $row = dbOne(
+        'SELECT 1 AS ok FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+        [$table, $column]
+    );
+    $cache[$key] = $row !== null;
+
+    return $cache[$key];
+}
+
+/**
  * Column names present on `loans` in the current database (cached per request).
  *
  * @return array<string, true>
@@ -479,16 +499,91 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
         ? " AND (l.status IS NULL OR l.status = 'active')"
         : '';
 
+    $notPostedClause = '';
+    $params = [$selectedYm, $selectedYm];
+    if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+        $notPostedClause = ' AND NOT EXISTS (SELECT 1 FROM cash_events ce WHERE ce.loan_id = l.id AND ce.scheduled_check_ym = ?)';
+        $params[] = $selectedYm;
+    }
+
     $sql = 'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, '
         . loan_sql_select_checks_column_expressions('l.')
-        . ', l.payment_type, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
+        . ', l.payment_type, l.prepaid_interest_date, l.funding_source, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
         . 'WHERE l.origin_date IS NOT NULL '
         . "AND DATE_FORMAT(l.origin_date, '%Y-%m') <= ? "
         . "AND (l.maturity_date IS NULL OR DATE_FORMAT(l.maturity_date, '%Y-%m') >= ?)"
         . $statusClause
+        . $notPostedClause
         . ' ORDER BY e.name ASC, l.name ASC';
 
-    return dbAll($sql, [$selectedYm, $selectedYm]);
+    return dbAll($sql, $params);
+}
+
+/**
+ * Expected payment total for a loan row on /checks for the given calendar month (matches GET /checks logic).
+ * Returns null when there is nothing to collect (e.g. declining balance paid off for that month).
+ *
+ * @param array<string, mixed> $row
+ */
+function checks_expected_payment_total_for_row(array $row, string $selectedYm): ?string
+{
+    $origin = (string) ($row['origin_date'] ?? '');
+    if ($origin === '') {
+        return null;
+    }
+    $principalStr = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '0.00';
+    $annualStr = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '0.000';
+    $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
+    if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
+        $calcMethod = 'fixed';
+    }
+    $mppStr = $row['principal_payment_monthly'] !== null && $row['principal_payment_monthly'] !== '' ? (string) $row['principal_payment_monthly'] : '0.00';
+    $monthlyIntStr = $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
+
+    if ($calcMethod === 'fixed') {
+        if ($monthlyIntStr !== '') {
+            $paymentStr = checks_normalize_money_2($monthlyIntStr);
+        } else {
+            $paymentStr = loan_simple_monthly_interest($principalStr, $annualStr);
+        }
+    } else {
+        $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $selectedYm);
+        $remainingStr = loan_remaining_principal_after_paydowns($principalStr, $mppStr, $monthsElapsed);
+        if (extension_loaded('bcmath')) {
+            $paidOff = bccomp($remainingStr, '0', 2) <= 0;
+        } else {
+            $paidOff = (float) $remainingStr <= 0.0;
+        }
+        if ($paidOff) {
+            return null;
+        }
+        $interestStr = checks_declining_monthly_interest($remainingStr, $annualStr);
+        $principalPortionStr = checks_normalize_money_2($mppStr);
+        $paymentStr = checks_add_money_2($interestStr, $principalPortionStr);
+    }
+
+    if (extension_loaded('bcmath')) {
+        if (bccomp($paymentStr, '0', 2) !== 1) {
+            return null;
+        }
+    } elseif ((float) $paymentStr <= 0.0) {
+        return null;
+    }
+
+    return $paymentStr;
+}
+
+/**
+ * @param array<string, mixed> $row
+ */
+function checks_funding_source_for_row(array $row): ?string
+{
+    $f = (string) ($row['funding_source'] ?? '');
+    if (!in_array($f, ['JPM', 'NTRS'], true)) {
+        return null;
+    }
+
+    return $f;
 }
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -526,7 +621,7 @@ $routes = [
         header('Content-Type: text/html; charset=utf-8');
         echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>' . e($title) . '</title></head><body>';
         echo '<p>' . e($heading) . '</p>';
-        echo '<p><a href="/borrowers">Borrowers</a> · <a href="/entities">Entities</a> · <a href="/loans">Loans</a> · <a href="/checks">Checks</a></p>';
+        echo '<p><a href="/borrowers">Borrowers</a> · <a href="/entities">Entities</a> · <a href="/loans">Loans</a> · <a href="/checks">Checks</a> · <a href="/cash-events">Cash events</a></p>';
         echo '<form method="post" action="/logout">' . csrf_field() . '<button type="submit">Sign out</button></form>';
         echo '</body></html>';
     },
@@ -939,18 +1034,31 @@ $routes = [
         echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="month" name="month" type="month" value="' . e($selectedYm) . '"></div>';
         echo '<button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Show</button>';
         echo '</form></div>';
-        echo '<p class="text-sm text-slate-600">Read-only expected payment for <strong>interest-only</strong> and <strong>amortizing</strong> loans, and for <strong>prepaid</strong> loans after the prepaid-through month (they then appear in this table instead of the prepaid section below). For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Paydown count for the selected month excludes the loan’s origin month (first modeled paydown is the month after the origin month). The prepaid section lists prepaid loans only through the calendar month of <code class="text-xs">prepaid_interest_date</code>. No data is saved from this page.</p>';
-        echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a>';
+        echo '<p class="text-sm text-slate-600">Expected payment for <strong>interest-only</strong>, <strong>amortizing</strong>, and <strong>post-prepaid</strong> loans still due for this calendar month. For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Paydown count excludes the loan’s origin month. The prepaid section lists prepaid loans only through the calendar month of <code class="text-xs">prepaid_interest_date</code>. Use <strong>Post cash events</strong> to record received checks (see note below the button).</p>';
+        if (!schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Posting checks and hiding completed rows requires database migration <code class="text-xs">0005_cash_events_scheduled_check.sql</code>. Run <code class="text-xs">php bin/migrate.php</code> on the server.</p>';
+        }
+        echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a> · <a class="text-sm text-slate-600 underline" href="/cash-events">Cash events</a>';
+        if (isset($_GET['posted']) && (string) $_GET['posted'] === '1') {
+            echo '<p class="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">Cash events were posted for the selected checkboxes.</p>';
+        }
+        if (isset($_GET['posted']) && (string) $_GET['posted'] === '0') {
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Nothing was posted (no qualifying loans selected, invalid date, or duplicate posting).</p>';
+        }
 
+        echo '<form method="post" action="/checks" class="space-y-4">';
+        echo csrf_field();
+        echo '<input type="hidden" name="month" value="' . e($selectedYm) . '">';
         echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
         echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
         echo '<th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Method</th>';
-        echo '<th class="px-3 py-2 font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Done</th><th class="px-3 py-2 font-medium">Notes</th>';
+        echo '<th class="px-3 py-2 font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Post</th><th class="px-3 py-2 font-medium">Notes</th>';
         echo '</tr></thead><tbody>';
         if ($monthlyRows === []) {
-            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="6">No interest-only or amortizing loans.</td></tr>';
+            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="6">No interest-only, amortizing, or post-prepaid loans with an outstanding check for this month.</td></tr>';
         } else {
             foreach ($monthlyRows as $row) {
+                $loanId = (int) ($row['id'] ?? 0);
                 $entityName = (string) ($row['entity_name'] ?? '');
                 $loanName = (string) ($row['name'] ?? '');
                 $origin = (string) ($row['origin_date'] ?? '');
@@ -965,7 +1073,8 @@ $routes = [
 
                 $expectedCellHtml = '<span class="text-slate-400">—</span>';
                 $notes = '';
-                $checkAttrs = ' type="checkbox" class="h-4 w-4 rounded border-slate-300"';
+                $checkAttrs = ' type="checkbox" name="loan_ids[]" value="' . e((string) $loanId) . '" class="h-4 w-4 rounded border-slate-300"';
+                $paymentTotal = checks_expected_payment_total_for_row($row, $selectedYm);
 
                 if ($calcMethod === 'fixed') {
                     if ($monthlyIntStr !== '') {
@@ -984,7 +1093,7 @@ $routes = [
                     }
                     if ($paidOff) {
                         $expectedCellHtml = '<div class="font-medium text-slate-400">—</div><div class="text-xs text-slate-500">Paid off</div>';
-                        $checkAttrs .= ' disabled';
+                        $checkAttrs = ' type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"';
                     } else {
                         $interestStr = checks_declining_monthly_interest($remainingStr, $annualStr);
                         $principalPortionStr = checks_normalize_money_2($mppStr);
@@ -995,17 +1104,29 @@ $routes = [
                     }
                 }
 
+                if ($paymentTotal === null) {
+                    $checkAttrs = ' type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"';
+                }
+
                 echo '<tr class="border-t border-slate-100">';
                 echo '<td class="px-3 py-2">' . e($entityName) . '</td>';
                 echo '<td class="px-3 py-2">' . e($loanName) . '</td>';
                 echo '<td class="px-3 py-2">' . e($calcMethod) . '</td>';
                 echo '<td class="px-3 py-2">' . $expectedCellHtml . '</td>';
-                echo '<td class="px-3 py-2"><label class="inline-flex items-center gap-2"><input' . $checkAttrs . '> <span class="sr-only">Received</span></label></td>';
+                echo '<td class="px-3 py-2"><label class="inline-flex items-center gap-2"><input' . $checkAttrs . '> <span class="sr-only">Post this check</span></label></td>';
                 echo '<td class="px-3 py-2 text-slate-600">' . e($notes) . '</td>';
                 echo '</tr>';
             }
         }
         echo '</tbody></table></div>';
+        $today = (new DateTimeImmutable('today'))->format('Y-m-d');
+        echo '<div class="flex flex-wrap items-end gap-4 rounded border border-slate-200 bg-white p-4 shadow-sm">';
+        echo '<div><label class="mb-1 block text-xs font-medium text-slate-600" for="event_date">Cash event date</label>';
+        echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="event_date" name="event_date" type="date" value="' . e($today) . '" required></div>';
+        echo '<button class="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white" type="submit">Post cash events</button>';
+        echo '</div>';
+        echo '<p class="text-xs text-slate-500">Creates one <strong>interest</strong> cash event per checked loan (amount = expected payment) with <code class="text-xs">deposit_to</code> set from the loan’s funding source. Posted loans disappear from this list for that calendar month.</p>';
+        echo '</form>';
 
         echo '<h2 class="text-lg font-semibold text-slate-800">Prepaid loans</h2>';
         echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
@@ -1026,6 +1147,290 @@ $routes = [
             }
         }
         echo '</tbody></table></div></div></body></html>';
+    },
+    'POST /checks' => static function (): void {
+        csrf_verify_or_die();
+
+        $monthParam = trim((string) ($_POST['month'] ?? ''));
+        $selectedYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
+        if (preg_match('/^\d{4}-\d{2}$/', $monthParam) === 1) {
+            $parsedMonth = DateTimeImmutable::createFromFormat('Y-m', $monthParam);
+            if ($parsedMonth instanceof DateTimeImmutable && $parsedMonth->format('Y-m') === $monthParam) {
+                $selectedYm = $monthParam;
+            }
+        }
+
+        $eventDateRaw = trim((string) ($_POST['event_date'] ?? ''));
+        $parsedEvent = DateTimeImmutable::createFromFormat('Y-m-d', $eventDateRaw);
+        $eventDate = $parsedEvent instanceof DateTimeImmutable && $parsedEvent->format('Y-m-d') === $eventDateRaw
+            ? $eventDateRaw
+            : null;
+
+        $loanIdsPost = $_POST['loan_ids'] ?? [];
+        if (!is_array($loanIdsPost)) {
+            $loanIdsPost = [];
+        }
+        $loanIdSet = [];
+        foreach ($loanIdsPost as $raw) {
+            $lid = (int) $raw;
+            if ($lid > 0) {
+                $loanIdSet[$lid] = true;
+            }
+        }
+        $loanIdList = array_keys($loanIdSet);
+
+        if ($eventDate === null || $loanIdList === []) {
+            header('Location: /checks?month=' . rawurlencode($selectedYm) . '&posted=0');
+            exit;
+        }
+
+        $rows = checks_fetch_loan_rows_for_checks_page($selectedYm);
+        $eligibleById = [];
+        foreach ($rows as $row) {
+            $lid = (int) ($row['id'] ?? 0);
+            if ($lid < 1) {
+                continue;
+            }
+            $ptype = (string) ($row['payment_type'] ?? '');
+            if ($ptype === 'prepaid') {
+                $pDateRaw = $row['prepaid_interest_date'] ?? null;
+                $pDateStr = $pDateRaw !== null && $pDateRaw !== '' ? (string) $pDateRaw : null;
+                if (!checks_selected_month_within_prepaid_window($pDateStr, $selectedYm)) {
+                    $eligibleById[$lid] = $row;
+                }
+            } elseif (in_array($ptype, ['interest_only', 'amortizing'], true)) {
+                $eligibleById[$lid] = $row;
+            }
+        }
+
+        if (!schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+            header('Location: /checks?month=' . rawurlencode($selectedYm) . '&posted=0');
+            exit;
+        }
+
+        $pdo = db();
+        $insertStmt = $pdo->prepare(
+            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, \'interest\', ?, ?)'
+        );
+        $posted = 0;
+        $pdo->beginTransaction();
+        try {
+            foreach ($loanIdList as $loanId) {
+                if (!isset($eligibleById[$loanId])) {
+                    continue;
+                }
+                $row = $eligibleById[$loanId];
+                $amountStr = checks_expected_payment_total_for_row($row, $selectedYm);
+                if ($amountStr === null) {
+                    continue;
+                }
+                $depositTo = checks_funding_source_for_row($row);
+                if ($depositTo === null) {
+                    continue;
+                }
+                $notes = 'Checks ' . $selectedYm . ' (from /checks)';
+                try {
+                    $insertStmt->execute([$loanId, $selectedYm, $eventDate, $amountStr, $depositTo, $notes]);
+                    ++$posted;
+                } catch (PDOException $e) {
+                    $sqlState = $e->errorInfo[1] ?? null;
+                    if ((int) $sqlState === 1062) {
+                        continue;
+                    }
+                    throw $e;
+                }
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        header('Location: /checks?month=' . rawurlencode($selectedYm) . '&posted=' . ($posted > 0 ? '1' : '0'));
+        exit;
+    },
+    'GET /cash-events' => static function (): void {
+        $title = 'Cash events';
+        $schSel = schema_table_has_column('cash_events', 'scheduled_check_ym')
+            ? 'ce.scheduled_check_ym'
+            : 'CAST(NULL AS CHAR(7)) AS scheduled_check_ym';
+        $rows = dbAll(
+            'SELECT ce.id, ce.loan_id, ' . $schSel . ', ce.event_date, ce.amount, ce.category, ce.deposit_to, ce.notes, '
+            . 'l.name AS loan_name, e.name AS entity_name '
+            . 'FROM cash_events ce '
+            . 'LEFT JOIN loans l ON l.id = ce.loan_id '
+            . 'LEFT JOIN entities e ON e.id = l.entity_id '
+            . 'ORDER BY ce.event_date DESC, ce.id DESC LIMIT 500',
+            []
+        );
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+        echo '<script src="https://cdn.tailwindcss.com"></script>';
+        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
+        echo '<div class="mx-auto max-w-6xl space-y-4">';
+        echo '<div class="flex flex-wrap items-center justify-between gap-4">';
+        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
+        echo '<a class="rounded bg-slate-900 px-3 py-2 text-sm text-white" href="/cash-events/new">New cash event</a>';
+        echo '</div>';
+        echo '<p class="text-sm text-slate-600">Ledger of cash movements. Events from <strong>Checks</strong> include the scheduled month in <code class="text-xs">scheduled_check_ym</code> when set.</p>';
+        echo '<p class="text-sm"><a class="text-slate-600 underline" href="/">Dashboard</a> · <a class="text-slate-600 underline" href="/checks">Checks</a> · <a class="text-slate-600 underline" href="/loans">Loans</a></p>';
+        echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
+        echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
+        echo '<th class="px-3 py-2 font-medium">Date</th><th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th>';
+        echo '<th class="px-3 py-2 font-medium">Amount</th><th class="px-3 py-2 font-medium">Category</th><th class="px-3 py-2 font-medium">Deposit to</th>';
+        echo '<th class="px-3 py-2 font-medium">Check month</th><th class="px-3 py-2 font-medium">Notes</th>';
+        echo '</tr></thead><tbody>';
+        if ($rows === []) {
+            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="8">No cash events yet.</td></tr>';
+        } else {
+            foreach ($rows as $row) {
+                $id = (string) ($row['id'] ?? '');
+                $ed = (string) ($row['event_date'] ?? '');
+                $ent = (string) ($row['entity_name'] ?? '');
+                $loan = (string) ($row['loan_name'] ?? '');
+                if ($loan === '' && ($row['loan_id'] ?? null) === null) {
+                    $loan = '—';
+                } elseif ($loan === '') {
+                    $loan = '#' . (string) ($row['loan_id'] ?? '');
+                }
+                $amt = $row['amount'] !== null && $row['amount'] !== '' ? (string) $row['amount'] : '';
+                $cat = (string) ($row['category'] ?? '');
+                $dep = $row['deposit_to'] !== null && $row['deposit_to'] !== '' ? (string) $row['deposit_to'] : '—';
+                $scm = $row['scheduled_check_ym'] !== null && $row['scheduled_check_ym'] !== '' ? (string) $row['scheduled_check_ym'] : '—';
+                $notes = $row['notes'] !== null && $row['notes'] !== '' ? (string) $row['notes'] : '';
+                echo '<tr class="border-t border-slate-100">';
+                echo '<td class="px-3 py-2">' . e($ed) . '</td>';
+                echo '<td class="px-3 py-2">' . e($ent !== '' ? $ent : '—') . '</td>';
+                echo '<td class="px-3 py-2">' . e($loan) . '</td>';
+                echo '<td class="px-3 py-2 font-medium">' . e($amt) . '</td>';
+                echo '<td class="px-3 py-2">' . e($cat) . '</td>';
+                echo '<td class="px-3 py-2">' . e($dep) . '</td>';
+                echo '<td class="px-3 py-2">' . e($scm) . '</td>';
+                echo '<td class="px-3 py-2 text-slate-600">' . e($notes) . '</td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table></div></div></body></html>';
+    },
+    'GET /cash-events/new' => static function (): void {
+        $title = 'New cash event';
+        $loans = dbAll(
+            'SELECT l.id, l.name, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
+            []
+        );
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+        echo '<script src="https://cdn.tailwindcss.com"></script>';
+        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
+        echo '<div class="mx-auto max-w-xl space-y-4">';
+        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
+        echo '<p class="text-sm text-slate-600">Record a payment or adjustment outside the monthly Checks flow. These events are not tied to a scheduled check month.</p>';
+        echo '<a class="text-sm text-slate-600 underline" href="/cash-events">Back to cash events</a>';
+        if (isset($_GET['invalid'])) {
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Please fix the highlighted fields and try again.</p>';
+        }
+        echo '<form class="space-y-4 rounded border border-slate-200 bg-white p-4 shadow-sm" method="post" action="/cash-events/new">';
+        echo csrf_field();
+        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="loan_id">Loan (optional)</label>';
+        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="loan_id" name="loan_id">';
+        echo '<option value="">— None —</option>';
+        foreach ($loans as $lr) {
+            $lid = (string) ($lr['id'] ?? '');
+            $label = e((string) ($lr['entity_name'] ?? '')) . ' — ' . e((string) ($lr['name'] ?? ''));
+            echo '<option value="' . e($lid) . '">' . $label . '</option>';
+        }
+        echo '</select></div>';
+        $today = (new DateTimeImmutable('today'))->format('Y-m-d');
+        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="event_date">Event date</label>';
+        echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="event_date" name="event_date" type="date" required value="' . e($today) . '"></div>';
+        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="amount">Amount</label>';
+        echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="amount" name="amount" type="text" inputmode="decimal" required placeholder="0.00"></div>';
+        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="category">Category</label>';
+        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="category" name="category" required>';
+        foreach (['interest', 'principal_in', 'loc_interest', 'principal_out'] as $c) {
+            echo '<option value="' . e($c) . '"' . ($c === 'interest' ? ' selected' : '') . '>' . e($c) . '</option>';
+        }
+        echo '</select></div>';
+        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="deposit_to">Deposit to</label>';
+        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="deposit_to" name="deposit_to">';
+        echo '<option value="">—</option><option value="JPM">JPM</option><option value="NTRS">NTRS</option></select></div>';
+        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="notes">Notes</label>';
+        echo '<textarea class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="notes" name="notes" rows="3"></textarea></div>';
+        echo '<div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>';
+        echo '<a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/cash-events">Cancel</a></div>';
+        echo '</form></div></body></html>';
+    },
+    'POST /cash-events/new' => static function (): void {
+        csrf_verify_or_die();
+
+        $loanIdRaw = trim((string) ($_POST['loan_id'] ?? ''));
+        $loanId = $loanIdRaw === '' ? null : (int) $loanIdRaw;
+        if ($loanId !== null && $loanId < 1) {
+            header('Location: /cash-events/new?invalid=1');
+            exit;
+        }
+
+        $eventDateRaw = trim((string) ($_POST['event_date'] ?? ''));
+        $parsedEv = DateTimeImmutable::createFromFormat('Y-m-d', $eventDateRaw);
+        if (!$parsedEv instanceof DateTimeImmutable || $parsedEv->format('Y-m-d') !== $eventDateRaw) {
+            header('Location: /cash-events/new?invalid=1');
+            exit;
+        }
+
+        $amountRaw = loan_normalize_decimal_input((string) ($_POST['amount'] ?? ''));
+        $amountTrim = trim($amountRaw);
+        if ($amountTrim === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $amountTrim)) {
+            header('Location: /cash-events/new?invalid=1');
+            exit;
+        }
+        if (extension_loaded('bcmath')) {
+            if (bccomp($amountTrim, '0', 2) !== 1) {
+                header('Location: /cash-events/new?invalid=1');
+                exit;
+            }
+        } elseif ((float) $amountTrim <= 0.0) {
+            header('Location: /cash-events/new?invalid=1');
+            exit;
+        }
+        $amountStr = checks_normalize_money_2($amountTrim);
+
+        $category = trim((string) ($_POST['category'] ?? ''));
+        if (!in_array($category, ['interest', 'principal_in', 'loc_interest', 'principal_out'], true)) {
+            header('Location: /cash-events/new?invalid=1');
+            exit;
+        }
+
+        $depRaw = trim((string) ($_POST['deposit_to'] ?? ''));
+        $depositTo = $depRaw === '' ? null : $depRaw;
+        if ($depositTo !== null && !in_array($depositTo, ['JPM', 'NTRS'], true)) {
+            header('Location: /cash-events/new?invalid=1');
+            exit;
+        }
+
+        $notesRaw = trim((string) ($_POST['notes'] ?? ''));
+        $notes = $notesRaw === '' ? null : $notesRaw;
+
+        if ($loanId !== null) {
+            $exists = dbOne('SELECT id FROM loans WHERE id = ?', [$loanId]);
+            if ($exists === null) {
+                header('Location: /cash-events/new?invalid=1');
+                exit;
+            }
+        }
+
+        if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+            $stmt = db()->prepare(
+                'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, NULL, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([$loanId, $eventDateRaw, $amountStr, $category, $depositTo, $notes]);
+        } else {
+            $stmt = db()->prepare(
+                'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([$loanId, $eventDateRaw, $amountStr, $category, $depositTo, $notes]);
+        }
+        header('Location: /cash-events');
+        exit;
     },
     'GET /loans/new' => static function (): void {
         $title = 'New loan';
