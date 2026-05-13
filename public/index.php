@@ -30,6 +30,30 @@ security_headers();
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'view.php';
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'db.php';
 
+/**
+ * Monthly interest on full principal at the stated annual rate (no amortization).
+ * Formula: principal_amount * (interest_rate / 100) / 12
+ */
+function loan_simple_monthly_interest(string $principalAmount, string $annualRatePercent): string
+{
+    if (extension_loaded('bcmath')) {
+        if (bccomp($principalAmount, '0', 2) <= 0 || bccomp($annualRatePercent, '0', 2) <= 0) {
+            return '0.00';
+        }
+        $monthly = bcdiv(bcmul($principalAmount, bcdiv($annualRatePercent, '100', 8), 8), '12', 8);
+
+        return bcadd($monthly, '0', 2);
+    }
+
+    $p = (float) $principalAmount;
+    $r = (float) $annualRatePercent;
+    if ($p <= 0.0 || $r <= 0.0) {
+        return '0.00';
+    }
+
+    return number_format($p * ($r / 100.0) / 12.0, 2, '.', '');
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $path = is_string($rawPath) && $rawPath !== '' ? $rawPath : '/';
@@ -348,7 +372,7 @@ $routes = [
     'GET /loans' => static function (): void {
         $title = 'Loans';
         $rows = dbAll(
-            'SELECT l.id, l.name, l.funding_source, l.origin_date, l.maturity_date, l.interest_type, l.monthly_interest, l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
+            'SELECT l.id, l.name, l.funding_source, l.origin_date, l.maturity_date, l.payment_type, l.principal_amount, l.interest_rate, l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
             []
         );
         header('Content-Type: text/html; charset=utf-8');
@@ -365,11 +389,11 @@ $routes = [
         echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
         echo '<th class="px-3 py-2 font-medium">ID</th><th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Name</th>';
         echo '<th class="px-3 py-2 font-medium">Funding</th><th class="px-3 py-2 font-medium">Origin</th><th class="px-3 py-2 font-medium">Maturity</th>';
-        echo '<th class="px-3 py-2 font-medium">Interest</th><th class="px-3 py-2 font-medium">Monthly</th><th class="px-3 py-2 font-medium">Prepaid amt</th><th class="px-3 py-2 font-medium">Prepaid date</th>';
+        echo '<th class="px-3 py-2 font-medium">Principal</th><th class="px-3 py-2 font-medium">Rate %</th><th class="px-3 py-2 font-medium">Payment type</th>';
         echo '<th class="px-3 py-2 font-medium">Actions</th>';
         echo '</tr></thead><tbody>';
         if ($rows === []) {
-            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="11">No loans yet.</td></tr>';
+            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="10">No loans yet.</td></tr>';
         } else {
             foreach ($rows as $row) {
                 $id = (string) ($row['id'] ?? '');
@@ -378,10 +402,13 @@ $routes = [
                 $funding = (string) ($row['funding_source'] ?? '');
                 $origin = (string) ($row['origin_date'] ?? '');
                 $maturity = $row['maturity_date'] !== null && $row['maturity_date'] !== '' ? (string) $row['maturity_date'] : '';
-                $itype = (string) ($row['interest_type'] ?? '');
-                $monthly = $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
-                $pamt = $row['prepaid_interest_amount'] !== null && $row['prepaid_interest_amount'] !== '' ? (string) $row['prepaid_interest_amount'] : '';
-                $pdate = $row['prepaid_interest_date'] !== null && $row['prepaid_interest_date'] !== '' ? (string) $row['prepaid_interest_date'] : '';
+                $ptype = (string) ($row['payment_type'] ?? '');
+                $principal = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '';
+                $rate = $row['interest_rate'] !== null && $row['interest_rate'] !== '' ? (string) $row['interest_rate'] : '';
+                $estMonthly = loan_simple_monthly_interest($principal, $rate);
+                $principalTitle = in_array($ptype, ['interest_only', 'amortizing'], true)
+                    ? 'Est. monthly interest (full principal, not amortized): ' . $estMonthly
+                    : '';
                 echo '<tr class="border-t border-slate-100">';
                 echo '<td class="px-3 py-2">' . e($id) . '</td>';
                 echo '<td class="px-3 py-2">' . e($entityName) . '</td>';
@@ -389,10 +416,9 @@ $routes = [
                 echo '<td class="px-3 py-2">' . e($funding) . '</td>';
                 echo '<td class="px-3 py-2">' . e($origin) . '</td>';
                 echo '<td class="px-3 py-2">' . e($maturity) . '</td>';
-                echo '<td class="px-3 py-2">' . e($itype) . '</td>';
-                echo '<td class="px-3 py-2">' . e($monthly) . '</td>';
-                echo '<td class="px-3 py-2">' . e($pamt) . '</td>';
-                echo '<td class="px-3 py-2">' . e($pdate) . '</td>';
+                echo '<td class="px-3 py-2"' . ($principalTitle !== '' ? ' title="' . e($principalTitle) . '"' : '') . '>' . e($principal) . '</td>';
+                echo '<td class="px-3 py-2">' . e($rate) . '</td>';
+                echo '<td class="px-3 py-2">' . e($ptype) . '</td>';
                 echo '<td class="px-3 py-2"><a class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-800 hover:bg-slate-50" href="/loans/edit?id=' . e($id) . '">Edit</a></td>';
                 echo '</tr>';
             }
@@ -431,14 +457,18 @@ $routes = [
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="origin_date" name="origin_date" type="date" required></div>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="maturity_date">Maturity date (optional)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="maturity_date" name="maturity_date" type="date"></div>';
-            echo '<fieldset class="space-y-2"><legend class="mb-1 text-sm font-medium text-slate-700">Interest type</legend>';
-            echo '<label class="mr-4 text-sm"><input class="mr-1" type="radio" name="interest_type" value="monthly" required> Monthly</label>';
-            echo '<label class="text-sm"><input class="mr-1" type="radio" name="interest_type" value="prepaid"> Prepaid</label></fieldset>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="monthly_interest">Monthly interest (required if monthly)</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="monthly_interest" name="monthly_interest" type="text" inputmode="decimal" placeholder="0.00"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount (required if prepaid)</label>';
+            echo '<fieldset class="space-y-2"><legend class="mb-1 text-sm font-medium text-slate-700">Payment type</legend>';
+            echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="payment_type" value="interest_only" required> Interest only</label>';
+            echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="payment_type" value="amortizing"> Amortizing</label>';
+            echo '<label class="block text-sm"><input class="mr-1" type="radio" name="payment_type" value="prepaid"> Prepaid</label></fieldset>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_amount">Principal amount</label>';
+            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_amount" name="principal_amount" type="text" inputmode="decimal" placeholder="0.00"></div>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="interest_rate">Annual interest rate (%)</label>';
+            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="interest_rate" name="interest_rate" type="text" inputmode="decimal" placeholder="e.g. 12.50"></div>';
+            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal and annual rate are required. Prepaid: prepaid amount and date are required (principal/rate may be zero).</p>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date (required if prepaid)</label>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_date" name="prepaid_interest_date" type="date"></div>';
             echo '<div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>';
             echo '<a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/loans">Cancel</a></div>';
@@ -453,7 +483,7 @@ $routes = [
             exit;
         }
         $loan = dbOne(
-            'SELECT id, entity_id, name, funding_source, origin_date, maturity_date, interest_type, monthly_interest, prepaid_interest_amount, prepaid_interest_date FROM loans WHERE id = ?',
+            'SELECT id, entity_id, name, funding_source, origin_date, maturity_date, payment_type, principal_amount, interest_rate, prepaid_interest_amount, prepaid_interest_date FROM loans WHERE id = ?',
             [$id]
         );
         if ($loan === null) {
@@ -468,14 +498,16 @@ $routes = [
         $funding = (string) ($loan['funding_source'] ?? '');
         $origin = (string) ($loan['origin_date'] ?? '');
         $maturity = $loan['maturity_date'] !== null && $loan['maturity_date'] !== '' ? (string) $loan['maturity_date'] : '';
-        $itype = (string) ($loan['interest_type'] ?? '');
-        $monthlyVal = $loan['monthly_interest'] !== null && $loan['monthly_interest'] !== '' ? (string) $loan['monthly_interest'] : '';
+        $ptype = (string) ($loan['payment_type'] ?? '');
+        $principalVal = $loan['principal_amount'] !== null && $loan['principal_amount'] !== '' ? (string) $loan['principal_amount'] : '';
+        $rateVal = $loan['interest_rate'] !== null && $loan['interest_rate'] !== '' ? (string) $loan['interest_rate'] : '';
         $pamtVal = $loan['prepaid_interest_amount'] !== null && $loan['prepaid_interest_amount'] !== '' ? (string) $loan['prepaid_interest_amount'] : '';
         $pdateVal = $loan['prepaid_interest_date'] !== null && $loan['prepaid_interest_date'] !== '' ? (string) $loan['prepaid_interest_date'] : '';
         $selJpm = $funding === 'JPM' ? ' selected' : '';
         $selNtrs = $funding === 'NTRS' ? ' selected' : '';
-        $chkMonthly = $itype === 'monthly' ? ' checked' : '';
-        $chkPrepaid = $itype === 'prepaid' ? ' checked' : '';
+        $chkIo = $ptype === 'interest_only' ? ' checked' : '';
+        $chkAm = $ptype === 'amortizing' ? ' checked' : '';
+        $chkPre = $ptype === 'prepaid' ? ' checked' : '';
         header('Content-Type: text/html; charset=utf-8');
         echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
         echo '<script src="https://cdn.tailwindcss.com"></script>';
@@ -507,14 +539,18 @@ $routes = [
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="origin_date" name="origin_date" type="date" required value="' . e($origin) . '"></div>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="maturity_date">Maturity date (optional)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="maturity_date" name="maturity_date" type="date" value="' . e($maturity) . '"></div>';
-            echo '<fieldset class="space-y-2"><legend class="mb-1 text-sm font-medium text-slate-700">Interest type</legend>';
-            echo '<label class="mr-4 text-sm"><input class="mr-1" type="radio" name="interest_type" value="monthly" required' . $chkMonthly . '> Monthly</label>';
-            echo '<label class="text-sm"><input class="mr-1" type="radio" name="interest_type" value="prepaid"' . $chkPrepaid . '> Prepaid</label></fieldset>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="monthly_interest">Monthly interest (required if monthly)</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="monthly_interest" name="monthly_interest" type="text" inputmode="decimal" placeholder="0.00" value="' . e($monthlyVal) . '"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount (required if prepaid)</label>';
+            echo '<fieldset class="space-y-2"><legend class="mb-1 text-sm font-medium text-slate-700">Payment type</legend>';
+            echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="payment_type" value="interest_only" required' . $chkIo . '> Interest only</label>';
+            echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="payment_type" value="amortizing"' . $chkAm . '> Amortizing</label>';
+            echo '<label class="block text-sm"><input class="mr-1" type="radio" name="payment_type" value="prepaid"' . $chkPre . '> Prepaid</label></fieldset>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_amount">Principal amount</label>';
+            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_amount" name="principal_amount" type="text" inputmode="decimal" placeholder="0.00" value="' . e($principalVal) . '"></div>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="interest_rate">Annual interest rate (%)</label>';
+            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="interest_rate" name="interest_rate" type="text" inputmode="decimal" placeholder="e.g. 12.50" value="' . e($rateVal) . '"></div>';
+            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal and annual rate are required. Prepaid: prepaid amount and date are required.</p>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00" value="' . e($pamtVal) . '"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date (required if prepaid)</label>';
+            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_date" name="prepaid_interest_date" type="date" value="' . e($pdateVal) . '"></div>';
             echo '<div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>';
             echo '<a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/loans">Cancel</a></div>';
@@ -547,13 +583,40 @@ $routes = [
             return $s;
         };
 
+        $parsePrincipal = static function (string $s): ?string {
+            $s = trim($s);
+            if ($s === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $s)) {
+                return null;
+            }
+
+            return $s;
+        };
+
+        $parseAnnualRate = static function (string $s): ?string {
+            $s = trim($s);
+            if ($s === '' || !preg_match('/^\d{1,3}(\.\d{1,2})?$/', $s)) {
+                return null;
+            }
+
+            return $s;
+        };
+
+        $principalRatePositive = static function (string $principal, string $rate): bool {
+            if (extension_loaded('bcmath')) {
+                return bccomp($principal, '0', 2) === 1 && bccomp($rate, '0', 2) === 1;
+            }
+
+            return (float) $principal > 0.0 && (float) $rate > 0.0;
+        };
+
         $entityId = (int) ($_POST['entity_id'] ?? 0);
         $name = trim((string) ($_POST['name'] ?? ''));
         $funding = (string) ($_POST['funding_source'] ?? '');
         $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
         $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
-        $interestType = (string) ($_POST['interest_type'] ?? '');
-        $monthlyRaw = trim((string) ($_POST['monthly_interest'] ?? ''));
+        $paymentType = (string) ($_POST['payment_type'] ?? '');
+        $principalRaw = trim((string) ($_POST['principal_amount'] ?? ''));
+        $rateRaw = trim((string) ($_POST['interest_rate'] ?? ''));
         $prepaidAmtRaw = trim((string) ($_POST['prepaid_interest_amount'] ?? ''));
         $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
 
@@ -562,7 +625,7 @@ $routes = [
             exit;
         };
 
-        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($interestType, ['monthly', 'prepaid'], true)) {
+        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
             $redirect();
         }
 
@@ -576,21 +639,32 @@ $routes = [
             $redirect();
         }
 
-        $monthlyInterest = null;
+        $principalStr = '0.00';
+        $rateStr = '0.00';
         $prepaidAmount = null;
         $prepaidDate = null;
 
-        if ($interestType === 'monthly') {
-            $monthlyInterest = $parseDecimal($monthlyRaw);
-            if ($monthlyInterest === null) {
-                $redirect();
-            }
-        } else {
+        if ($paymentType === 'prepaid') {
             $prepaidAmount = $parseDecimal($prepaidAmtRaw);
             $prepaidDate = $parseDate($prepaidDateRaw);
             if ($prepaidAmount === null || $prepaidDate === null) {
                 $redirect();
             }
+            if (extension_loaded('bcmath')) {
+                if (bccomp($prepaidAmount, '0', 2) !== 1) {
+                    $redirect();
+                }
+            } elseif ((float) $prepaidAmount <= 0.0) {
+                $redirect();
+            }
+        } else {
+            $p = $parsePrincipal($principalRaw);
+            $r = $parseAnnualRate($rateRaw);
+            if ($p === null || $r === null || !$principalRatePositive($p, $r)) {
+                $redirect();
+            }
+            $principalStr = $p;
+            $rateStr = $r;
         }
 
         $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
@@ -600,16 +674,17 @@ $routes = [
         }
 
         $stmt = db()->prepare(
-            'INSERT INTO loans (entity_id, name, funding_source, origin_date, maturity_date, interest_type, monthly_interest, prepaid_interest_amount, prepaid_interest_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)'
+            'INSERT INTO loans (entity_id, name, principal_amount, interest_rate, funding_source, origin_date, maturity_date, payment_type, prepaid_interest_amount, prepaid_interest_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)'
         );
         $stmt->execute([
             $entityId,
             $name,
+            $principalStr,
+            $rateStr,
             $funding,
             $origin,
             $maturity,
-            $interestType,
-            $monthlyInterest,
+            $paymentType,
             $prepaidAmount,
             $prepaidDate,
         ]);
@@ -641,6 +716,32 @@ $routes = [
             return $s;
         };
 
+        $parsePrincipal = static function (string $s): ?string {
+            $s = trim($s);
+            if ($s === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $s)) {
+                return null;
+            }
+
+            return $s;
+        };
+
+        $parseAnnualRate = static function (string $s): ?string {
+            $s = trim($s);
+            if ($s === '' || !preg_match('/^\d{1,3}(\.\d{1,2})?$/', $s)) {
+                return null;
+            }
+
+            return $s;
+        };
+
+        $principalRatePositive = static function (string $principal, string $rate): bool {
+            if (extension_loaded('bcmath')) {
+                return bccomp($principal, '0', 2) === 1 && bccomp($rate, '0', 2) === 1;
+            }
+
+            return (float) $principal > 0.0 && (float) $rate > 0.0;
+        };
+
         $loanId = (int) ($_POST['id'] ?? 0);
         if ($loanId < 1) {
             header('Location: /loans');
@@ -657,12 +758,13 @@ $routes = [
         $funding = (string) ($_POST['funding_source'] ?? '');
         $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
         $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
-        $interestType = (string) ($_POST['interest_type'] ?? '');
-        $monthlyRaw = trim((string) ($_POST['monthly_interest'] ?? ''));
+        $paymentType = (string) ($_POST['payment_type'] ?? '');
+        $principalRaw = trim((string) ($_POST['principal_amount'] ?? ''));
+        $rateRaw = trim((string) ($_POST['interest_rate'] ?? ''));
         $prepaidAmtRaw = trim((string) ($_POST['prepaid_interest_amount'] ?? ''));
         $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
 
-        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($interestType, ['monthly', 'prepaid'], true)) {
+        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
             $redirect($loanId);
         }
 
@@ -676,21 +778,32 @@ $routes = [
             $redirect($loanId);
         }
 
-        $monthlyInterest = null;
+        $principalStr = '0.00';
+        $rateStr = '0.00';
         $prepaidAmount = null;
         $prepaidDate = null;
 
-        if ($interestType === 'monthly') {
-            $monthlyInterest = $parseDecimal($monthlyRaw);
-            if ($monthlyInterest === null) {
-                $redirect($loanId);
-            }
-        } else {
+        if ($paymentType === 'prepaid') {
             $prepaidAmount = $parseDecimal($prepaidAmtRaw);
             $prepaidDate = $parseDate($prepaidDateRaw);
             if ($prepaidAmount === null || $prepaidDate === null) {
                 $redirect($loanId);
             }
+            if (extension_loaded('bcmath')) {
+                if (bccomp($prepaidAmount, '0', 2) !== 1) {
+                    $redirect($loanId);
+                }
+            } elseif ((float) $prepaidAmount <= 0.0) {
+                $redirect($loanId);
+            }
+        } else {
+            $p = $parsePrincipal($principalRaw);
+            $r = $parseAnnualRate($rateRaw);
+            if ($p === null || $r === null || !$principalRatePositive($p, $r)) {
+                $redirect($loanId);
+            }
+            $principalStr = $p;
+            $rateStr = $r;
         }
 
         $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
@@ -707,16 +820,17 @@ $routes = [
         }
 
         $stmt = db()->prepare(
-            'UPDATE loans SET entity_id = ?, name = ?, funding_source = ?, origin_date = ?, maturity_date = ?, interest_type = ?, monthly_interest = ?, prepaid_interest_amount = ?, prepaid_interest_date = ? WHERE id = ?'
+            'UPDATE loans SET entity_id = ?, name = ?, principal_amount = ?, interest_rate = ?, funding_source = ?, origin_date = ?, maturity_date = ?, payment_type = ?, prepaid_interest_amount = ?, prepaid_interest_date = ? WHERE id = ?'
         );
         $stmt->execute([
             $entityId,
             $name,
+            $principalStr,
+            $rateStr,
             $funding,
             $origin,
             $maturity,
-            $interestType,
-            $monthlyInterest,
+            $paymentType,
             $prepaidAmount,
             $prepaidDate,
             $loanId,
