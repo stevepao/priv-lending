@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+/storage
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
