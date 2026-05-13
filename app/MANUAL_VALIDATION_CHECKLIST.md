@@ -46,7 +46,11 @@ Run logged in, with migrations applied if you use posting / Posted status.
 21. **GET /bank** — Form shows bank selector (JPM / NTRS), statement date, interest amount, principal amount (default 0.00); CSRF field; **Save** posts to **POST /bank**; **Cancel** to `/`; invalid query shows amber banner.
 22. **POST /bank** — Valid submission inserts two `cash_events` with `loan_id` NULL, `deposit_to` equal to selected bank, `event_date` equal to statement date, amounts **negative** of the entered values: first row `category = loc_interest`, second `category = principal_out` (second row inserted even when principal is 0); `scheduled_check_ym` NULL when that column exists. CSRF enforced. Invalid input redirects to **GET /bank?invalid=1** with no inserts.
 
+## Report (`public/index.php`)
+
+23. **GET /report** — Date range form (start / end, GET); defaults to current calendar month when a bound is missing or invalid; **Run report** submits to same path. Shows Interest In, LOC Interest Out, Net Income, and FYI Principal Paid from `cash_events` with inclusive `event_date` range; amber message when start &gt; end (no query). Dashboard links to **Report**.
+
 ## Other routes
 
-23. **GET /** — Dashboard link row includes **Bank** when present.
-24. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
+24. **GET /** — Dashboard link row includes **Bank** and **Report** when present.
+25. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
