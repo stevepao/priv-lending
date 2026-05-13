@@ -28,24 +28,25 @@ Run logged in, with migrations applied if you use posting / Posted status.
 ## Loans (LoansController + views)
 
 11. **GET /loans** — Page loads; title “Loans”; **New loan** link; Dashboard link; table headers and empty state “No loans yet.” when there are no rows; with data: columns match prior list (principal tooltip on IO/amortizing, implied annual cell when applicable, Edit links to `/loans/edit?id=…`).
-12. **GET /loans/new** — Form fields, copy, entity dropdown, CSRF field, **Save** posts to **POST /loans/new**; **Cancel** to `/loans`; empty-entities message and link to `/entities/new` when no entities.
-13. **GET /loans/new?invalid=1** — Amber validation banner text unchanged from before refactor.
-14. **POST /loans/new** — Valid submissions insert and redirect to **GET /loans**; invalid submissions redirect to **GET /loans/new?invalid=1** with same rules as before (no change to validation or DB insert shape).
-15. **GET /loans/edit** and **POST /loans/edit** — Still handled inline in `public/index.php` (unchanged).
+12. **GET /loans/new** — Form fields, copy, entity dropdown, CSRF field, optional **Create funding transaction (principal_out) on save** when migration **0008** is applied (otherwise amber migration note); **Save** posts to **POST /loans/new**; **Cancel** to `/loans`; empty-entities message and link to `/entities/new` when no entities.
+13. **GET /loans/new?invalid=1** — Amber validation banner; includes guidance when funding checkbox was used without migration or without positive principal.
+14. **POST /loans/new** — Valid submissions insert and redirect to **GET /loans**; invalid submissions redirect to **GET /loans/new?invalid=1**. With **0008** and funding checkbox checked and principal &gt; 0: one `cash_events` row (`principal_out`, negative amount, `loan_id` set, `event_date` = origin, `deposit_to` = funding source) and `funding_principal_out_posted = 1` on the new loan (same transaction as loan insert).
+15. **GET /loans/edit** — Shows **Funding transaction (principal_out): Posted** when `funding_principal_out_posted` is set; otherwise optional **Post funding transaction now** checkbox when **0008** applied; amber migration note when column missing.
+16. **POST /loans/edit** — Same loan validation as before; with checkbox and not yet posted and principal &gt; 0: inserts funding `cash_events` row and sets `funding_principal_out_posted = 1` in the same transaction as the loan **UPDATE**.
 
 ## Cash events (`public/index.php`)
 
-16. **GET /cash-events** — Table includes **Actions** with **Edit** per row; empty state colspan matches column count.
-17. **GET /cash-events/edit?id=…** — Loads the event; form matches **New cash event** fields with current values; optional banner when `scheduled_check_ym` is set (migration applied); invalid query shows same amber message as new.
-18. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym, category)`.
-19. **GET /cash-events/new** and **POST /cash-events/new** — Unchanged.
+17. **GET /cash-events** — Table includes **Actions** with **Edit** per row; empty state colspan matches column count.
+18. **GET /cash-events/edit?id=…** — Loads the event; form matches **New cash event** fields with current values; optional banner when `scheduled_check_ym` is set (migration applied); invalid query shows same amber message as new.
+19. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym, category)`.
+20. **GET /cash-events/new** and **POST /cash-events/new** — Unchanged.
 
 ## Bank (`public/index.php`)
 
-20. **GET /bank** — Form shows bank selector (JPM / NTRS), statement date, interest amount, principal amount (default 0.00); CSRF field; **Save** posts to **POST /bank**; **Cancel** to `/`; invalid query shows amber banner.
-21. **POST /bank** — Valid submission inserts two `cash_events` with `loan_id` NULL, `deposit_to` equal to selected bank, `event_date` equal to statement date, amounts **negative** of the entered values: first row `category = loc_interest`, second `category = principal_out` (second row inserted even when principal is 0); `scheduled_check_ym` NULL when that column exists. CSRF enforced. Invalid input redirects to **GET /bank?invalid=1** with no inserts.
+21. **GET /bank** — Form shows bank selector (JPM / NTRS), statement date, interest amount, principal amount (default 0.00); CSRF field; **Save** posts to **POST /bank**; **Cancel** to `/`; invalid query shows amber banner.
+22. **POST /bank** — Valid submission inserts two `cash_events` with `loan_id` NULL, `deposit_to` equal to selected bank, `event_date` equal to statement date, amounts **negative** of the entered values: first row `category = loc_interest`, second `category = principal_out` (second row inserted even when principal is 0); `scheduled_check_ym` NULL when that column exists. CSRF enforced. Invalid input redirects to **GET /bank?invalid=1** with no inserts.
 
 ## Other routes
 
-22. **GET /** — Dashboard link row includes **Bank** when present.
-23. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
+23. **GET /** — Dashboard link row includes **Bank** when present.
+24. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.

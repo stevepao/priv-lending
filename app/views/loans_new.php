@@ -5,7 +5,7 @@
 <h1 class="text-2xl font-semibold"><?php echo e($title); ?></h1>
 <a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>
 <?php if ($showInvalid): ?>
-<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Use a dot or comma as the decimal separator (e.g. 100000.00 or 100000,00), optional US thousands, or a trailing % on the rate. Prepaid: amount and date required. Optional monthly amounts must be non-negative with at most two decimal places.</p>
+<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Use a dot or comma as the decimal separator (e.g. 100000.00 or 100000,00), optional US thousands, or a trailing % on the rate. Prepaid: amount and date required. Optional monthly amounts must be non-negative with at most two decimal places. If you checked <strong>Create funding transaction</strong>, principal must be greater than zero and migration <code class="text-xs">0008_loans_funding_principal_out_posted.sql</code> must be applied.</p>
 <?php endif; ?>
 <?php if ($entitiesEmpty): ?>
 <p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>
@@ -51,6 +51,11 @@
 <input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00"></div>
 <div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>
 <input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_date" name="prepaid_interest_date" type="date"></div>
+<?php if ($showFundingPrincipalOutPostedColumn): ?>
+<label class="flex items-start gap-2 text-sm text-slate-800"><input class="mt-1 h-4 w-4 rounded border-slate-300" type="checkbox" name="create_funding_principal_out" value="1"> <span><span class="font-medium">Create funding transaction (principal_out) on save</span><span class="block text-xs font-normal text-slate-500">Uses origin date, principal amount, and funding source; amount is stored negative (same convention as bank statement principal_out).</span></span></label>
+<?php else: ?>
+<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">To create a funding <code class="text-xs">principal_out</code> cash event when saving, run migration <code class="text-xs">0008_loans_funding_principal_out_posted.sql</code> (<code class="text-xs">php bin/migrate.php</code>).</p>
+<?php endif; ?>
 <div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>
 <a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/loans">Cancel</a></div>
 </form>

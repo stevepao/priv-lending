@@ -726,6 +726,28 @@ function checks_monthly_check_already_posted(array $row): bool
     return (int) $id > 0;
 }
 
+/**
+ * Insert a funding cash event: principal_out with negative amount (same sign convention as /bank), tied to the loan.
+ */
+function loan_insert_funding_principal_out_cash_event(int $loanId, string $principalPosStr, string $eventDateYmd, string $funding, string $loanName): void
+{
+    $p = checks_normalize_money_2($principalPosStr);
+    $neg = extension_loaded('bcmath') ? bcmul($p, '-1', 2) : number_format(-(float) $p, 2, '.', '');
+    $notes = 'Loan funding (principal_out) — ' . $loanName;
+    $pdo = db();
+    if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+        $st = $pdo->prepare(
+            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, NULL, ?, ?, ?, ?, ?)'
+        );
+        $st->execute([$loanId, $eventDateYmd, $neg, 'principal_out', $funding, $notes]);
+    } else {
+        $st = $pdo->prepare(
+            'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $st->execute([$loanId, $eventDateYmd, $neg, 'principal_out', $funding, $notes]);
+    }
+}
+
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controllers' . DIRECTORY_SEPARATOR . 'ChecksController.php';
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controllers' . DIRECTORY_SEPARATOR . 'LoansController.php';
 
@@ -1706,10 +1728,13 @@ $routes = [
             header('Location: /loans');
             exit;
         }
+        $fpSel = schema_table_has_column('loans', 'funding_principal_out_posted')
+            ? 'funding_principal_out_posted'
+            : 'CAST(0 AS UNSIGNED) AS funding_principal_out_posted';
         $loan = dbOne(
             'SELECT id, entity_id, name, funding_source, origin_date, maturity_date, payment_type, principal_amount, annual_interest_rate, '
             . loan_sql_select_checks_column_expressions('')
-            . ', prepaid_interest_amount, prepaid_interest_date FROM loans WHERE id = ?',
+            . ', prepaid_interest_amount, prepaid_interest_date, ' . $fpSel . ' FROM loans WHERE id = ?',
             [$id]
         );
         if ($loan === null) {
@@ -1741,8 +1766,8 @@ $routes = [
         $selNtrs = $funding === 'NTRS' ? ' selected' : '';
         $chkIo = $ptype === 'interest_only' ? ' checked' : '';
         $chkAm = $ptype === 'amortizing' ? ' checked' : '';
-        $chkPre = $ptype === 'prepaid' ? ' checked' : '';
-        header('Content-Type: text/html; charset=utf-8');
+        $hasFundingPostedCol = schema_table_has_column('loans', 'funding_principal_out_posted');
+        $fundingPosted = $hasFundingPostedCol && (int) ($loan['funding_principal_out_posted'] ?? 0) === 1;
         echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
         echo '<script src="https://cdn.tailwindcss.com"></script>';
         echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
@@ -1750,7 +1775,7 @@ $routes = [
         echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
         echo '<a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>';
         if (isset($_GET['invalid'])) {
-            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Check number formats (use 100000.00 or 100000,00). Optional monthly amounts must be non-negative with at most two decimal places.</p>';
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Check number formats (use 100000.00 or 100000,00). Optional monthly amounts must be non-negative with at most two decimal places. Posting a funding transaction requires positive principal and migration <code class="text-xs">0008_loans_funding_principal_out_posted.sql</code>.</p>';
         }
         if ($entities === []) {
             echo '<p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>';
@@ -1799,6 +1824,13 @@ $routes = [
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00" value="' . e($pamtVal) . '"></div>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_date" name="prepaid_interest_date" type="date" value="' . e($pdateVal) . '"></div>';
+            if (!$hasFundingPostedCol) {
+                echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Funding transaction tracking requires migration <code class="text-xs">0008_loans_funding_principal_out_posted.sql</code>. Run <code class="text-xs">php bin/migrate.php</code>.</p>';
+            } elseif ($fundingPosted) {
+                echo '<p class="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">Funding transaction (principal_out): Posted</p>';
+            } else {
+                echo '<label class="flex items-start gap-2 text-sm text-slate-800"><input class="mt-1 h-4 w-4 rounded border-slate-300" type="checkbox" name="post_funding_principal_out" value="1"> <span><span class="font-medium">Post funding transaction (principal_out) now</span><span class="block text-xs font-normal text-slate-500">Uses current principal, origin date, and funding source; amount is stored negative.</span></span></label>';
+            }
             echo '<div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>';
             echo '<a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/loans">Cancel</a></div>';
             echo '</form>';
@@ -1837,6 +1869,12 @@ $routes = [
         if ($loanId < 1) {
             header('Location: /loans');
             exit;
+        }
+
+        $fundingPostedFlag = false;
+        if (schema_table_has_column('loans', 'funding_principal_out_posted')) {
+            $fpr = dbOne('SELECT funding_principal_out_posted AS v FROM loans WHERE id = ?', [$loanId]);
+            $fundingPostedFlag = $fpr !== null && (int) ($fpr['v'] ?? 0) === 1;
         }
 
         $redirect = static function (int $lid): void {
@@ -1907,6 +1945,23 @@ $routes = [
             $rateStr = $parsed['rateStr'];
         }
 
+        $postFunding = isset($_POST['post_funding_principal_out']);
+        if ($postFunding && !schema_table_has_column('loans', 'funding_principal_out_posted')) {
+            $redirect($loanId);
+        }
+        if ($postFunding && $fundingPostedFlag) {
+            $postFunding = false;
+        }
+        if ($postFunding) {
+            if (extension_loaded('bcmath')) {
+                if (bccomp($principalStr, '0', 2) !== 1) {
+                    $redirect($loanId);
+                }
+            } elseif ((float) $principalStr <= 0.0) {
+                $redirect($loanId);
+            }
+        }
+
         $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
         $chk->execute([$entityId]);
         if ($chk->fetch() === false) {
@@ -1938,8 +1993,21 @@ $routes = [
         $setParts = array_merge($setParts, ['funding_source = ?', 'origin_date = ?', 'maturity_date = ?', 'payment_type = ?', 'prepaid_interest_amount = ?', 'prepaid_interest_date = ?']);
         $updParams = array_merge($updParams, [$funding, $origin, $maturity, $paymentType, $prepaidAmount, $prepaidDate, $loanId]);
         $sqlUpd = 'UPDATE loans SET ' . implode(', ', $setParts) . ' WHERE id = ?';
-        $stmt = db()->prepare($sqlUpd);
-        $stmt->execute($updParams);
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare($sqlUpd);
+            $stmt->execute($updParams);
+            if ($postFunding) {
+                loan_insert_funding_principal_out_cash_event($loanId, $principalStr, $origin, $funding, $name);
+                $mark = $pdo->prepare('UPDATE loans SET funding_principal_out_posted = 1 WHERE id = ? AND funding_principal_out_posted = 0');
+                $mark->execute([$loanId]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
         header('Location: /loans');
         exit;
     },

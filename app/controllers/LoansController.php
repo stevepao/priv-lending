@@ -106,6 +106,7 @@ final class LoansController
             'entities' => $entities,
             'showInvalid' => $showInvalid,
             'entitiesEmpty' => $entitiesEmpty,
+            'showFundingPrincipalOutPostedColumn' => schema_table_has_column('loans', 'funding_principal_out_posted'),
         ]);
     }
 
@@ -209,6 +210,11 @@ final class LoansController
             $redirect();
         }
 
+        $createFunding = isset($_POST['create_funding_principal_out']);
+        if ($createFunding && !schema_table_has_column('loans', 'funding_principal_out_posted')) {
+            $redirect();
+        }
+
         $idx = loan_loans_column_name_index();
         $insertCols = ['entity_id', 'name', 'principal_amount', 'annual_interest_rate'];
         $insertParams = [$entityId, $name, $principalStr, $rateStr];
@@ -228,8 +234,37 @@ final class LoansController
         $insertParams = array_merge($insertParams, [$funding, $origin, $maturity, $paymentType, $prepaidAmount, $prepaidDate, null]);
         $ph = implode(', ', array_fill(0, count($insertParams), '?'));
         $sqlIns = 'INSERT INTO loans (' . implode(', ', $insertCols) . ') VALUES (' . $ph . ')';
-        $stmt = db()->prepare($sqlIns);
-        $stmt->execute($insertParams);
+
+        if ($createFunding) {
+            if (extension_loaded('bcmath')) {
+                if (bccomp($principalStr, '0', 2) !== 1) {
+                    $redirect();
+                }
+            } elseif ((float) $principalStr <= 0.0) {
+                $redirect();
+            }
+        }
+
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare($sqlIns);
+            $stmt->execute($insertParams);
+            $newId = (int) $pdo->lastInsertId();
+            if ($newId < 1) {
+                throw new RuntimeException('Loan insert failed');
+            }
+            if ($createFunding) {
+                loan_insert_funding_principal_out_cash_event($newId, $principalStr, $origin, $funding, $name);
+                $mark = $pdo->prepare('UPDATE loans SET funding_principal_out_posted = 1 WHERE id = ?');
+                $mark->execute([$newId]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
         header('Location: /loans');
         exit;
     }
