@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 /storage
+.show-fatal-errors
 
 # macOS
 .DS_Store

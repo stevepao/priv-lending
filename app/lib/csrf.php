@@ -10,9 +10,9 @@ function csrf_token(): string
         try {
             $raw = random_bytes(32);
         } catch (Throwable $e) {
-            $raw = openssl_random_pseudo_bytes(32);
-            if ($raw === false) {
-                $raw = hash('sha256', uniqid((string) mt_rand(), true), true);
+            $raw = '';
+            for ($i = 0; $i < 32; $i++) {
+                $raw .= chr(random_int(0, 255));
             }
         }
         $_SESSION['csrf_token'] = bin2hex($raw);

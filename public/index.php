@@ -11,14 +11,37 @@ if (!extension_loaded('pdo') || !extension_loaded('pdo_mysql')) {
     exit;
 }
 
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'env.php';
+$projectRoot = dirname(__DIR__);
+$showErrorDetail = is_file($projectRoot . DIRECTORY_SEPARATOR . '.show-fatal-errors');
+
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'env.php';
 if (filter_var((string) env('APP_DEBUG', ''), FILTER_VALIDATE_BOOLEAN)) {
     ini_set('display_errors', '1');
     ini_set('display_startup_errors', '1');
+    ini_set('html_errors', '0');
     error_reporting(E_ALL);
+    $showErrorDetail = true;
 }
 
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'security_headers.php';
+if ($showErrorDetail) {
+    register_shutdown_function(static function (): void {
+        $e = error_get_last();
+        if ($e === null) {
+            return;
+        }
+        if (!in_array((int) $e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            return;
+        }
+        if (headers_sent()) {
+            return;
+        }
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo "PHP fatal error:\n\n" . $e['message'] . "\n\n" . $e['file'] . ':' . $e['line'] . "\n";
+    });
+}
+
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'security_headers.php';
 security_headers();
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'session.php';
@@ -425,4 +448,25 @@ if (!is_callable($handler)) {
     exit;
 }
 
-$handler();
+try {
+    $handler();
+} catch (Throwable $e) {
+    error_log('priv-lending ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    if ($showErrorDetail) {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: text/plain; charset=UTF-8');
+        }
+        echo $e->getMessage() . "\n" . $e->getFile() . ':' . $e->getLine() . "\n\n" . $e->getTraceAsString();
+        exit;
+    }
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+    }
+    echo "Application error.\n";
+    exit;
+}

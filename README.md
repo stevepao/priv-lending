@@ -100,6 +100,8 @@ The built-in server (`php -S`) does **not** read `.htaccess`. Path-based routes 
 
 6. **Still HTTP 500 with extensions OK?** Set **`APP_DEBUG=true`** in `.env`, reload once, and read the **PHP error message** shown in the browser (then set **`APP_DEBUG=false`** again). Common causes: the default **session save path** is not writable on shared hosting (this app falls back to **`sys_get_temp_dir()`** when needed), or TLS is terminated in front of PHP so **`HTTP_X_FORWARDED_PROTO`** must be honored for secure cookies (handled in `session.php`).
 
+7. **If you still only see a generic Apache 500 page:** create an empty file **`/.show-fatal-errors`** in the project root (next to `.env`), reload `/login`, and you should get a **plain-text “PHP fatal error”** line in the browser—remove that file afterward. You can also set **`DISABLE_CSP=true`** in `.env` temporarily to see if your host’s firewall dislikes the `Content-Security-Policy` header.
+
 ---
 
 ## Publishing to GitHub (new public repository)

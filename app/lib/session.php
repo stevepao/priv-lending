@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     $savePath = session_save_path();
-    if ($savePath !== '' && !is_writable($savePath)) {
-        session_save_path(sys_get_temp_dir());
+    $tmp = sys_get_temp_dir();
+    if ($savePath === '' || !is_writable($savePath)) {
+        if ($tmp !== '' && is_writable($tmp)) {
+            session_save_path($tmp);
+        }
     }
 
     $https =
