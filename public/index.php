@@ -488,7 +488,8 @@ function checks_selected_month_within_prepaid_window(?string $prepaidInterestDat
  *
  * Rows are limited to loans active for the calendar month $selectedYm (Y-m): origin month must
  * be on or before that month, maturity (if set) must not end before that month, and status must
- * be active when the status column exists.
+ * be active when the status column exists. Loans with a posted monthly check for that month are
+ * still returned (checks_month_posted_event_id) so the UI can show Posted.
  *
  * @return list<array<string, mixed>>
  */
@@ -499,12 +500,16 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
         ? " AND (l.status IS NULL OR l.status = 'active')"
         : '';
 
-    $notPostedClause = '';
-    $params = [$selectedYm, $selectedYm];
+    $postedSelect = '';
+    $params = [];
     if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
-        $notPostedClause = ' AND NOT EXISTS (SELECT 1 FROM cash_events ce WHERE ce.loan_id = l.id AND ce.scheduled_check_ym = ?)';
+        $postedSelect = ', (SELECT ce.id FROM cash_events ce WHERE ce.loan_id = l.id AND ce.scheduled_check_ym = ? LIMIT 1) AS checks_month_posted_event_id';
         $params[] = $selectedYm;
+    } else {
+        $postedSelect = ', CAST(NULL AS UNSIGNED) AS checks_month_posted_event_id';
     }
+    $params[] = $selectedYm;
+    $params[] = $selectedYm;
 
     $prepaidReceivedExpr = schema_table_has_column('loans', 'prepaid_interest_received')
         ? 'l.prepaid_interest_received'
@@ -513,12 +518,11 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
     $sql = 'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, '
         . loan_sql_select_checks_column_expressions('l.')
         . ', l.payment_type, l.prepaid_interest_amount, l.prepaid_interest_date, '
-        . $prepaidReceivedExpr . ', l.funding_source, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
+        . $prepaidReceivedExpr . ', l.funding_source, e.name AS entity_name' . $postedSelect . ' FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
         . 'WHERE l.origin_date IS NOT NULL '
         . "AND DATE_FORMAT(l.origin_date, '%Y-%m') <= ? "
         . "AND (l.maturity_date IS NULL OR DATE_FORMAT(l.maturity_date, '%Y-%m') >= ?)"
         . $statusClause
-        . $notPostedClause
         . ' ORDER BY e.name ASC, l.name ASC';
 
     return dbAll($sql, $params);
@@ -618,6 +622,17 @@ function checks_prepaid_interest_amount_db_string(array $row): ?string
     }
 
     return $s;
+}
+
+/** True when a scheduled monthly check cash event exists for this loan and calendar month. */
+function checks_monthly_check_already_posted(array $row): bool
+{
+    $id = $row['checks_month_posted_event_id'] ?? null;
+    if ($id === null || $id === '') {
+        return false;
+    }
+
+    return (int) $id > 0;
 }
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -1068,9 +1083,9 @@ $routes = [
         echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="month" name="month" type="month" value="' . e($selectedYm) . '"></div>';
         echo '<button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Show</button>';
         echo '</form></div>';
-        echo '<p class="text-sm text-slate-600">Expected payment for <strong>interest-only</strong>, <strong>amortizing</strong>, and <strong>post-prepaid</strong> loans still due for this calendar month. For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Paydown count excludes the loan’s origin month. <strong>Prepaid</strong> loans appear from the origin month through the prepaid-through month so you can post the lump prepaid interest once (then they show as Posted here until that window ends). Use <strong>Post cash events</strong> below for both tables.</p>';
+        echo '<p class="text-sm text-slate-600">Expected payment for <strong>interest-only</strong>, <strong>amortizing</strong>, and <strong>post-prepaid</strong> loans for this calendar month. Posted monthly checks show <strong>Posted</strong> in the status column (no checkbox). For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Paydown count excludes the loan’s origin month. <strong>Prepaid</strong> loans appear from the origin month through the prepaid-through month so you can post the lump prepaid interest once (then they show as Posted here until that window ends). Use <strong>Post cash events</strong> below for both tables.</p>';
         if (!schema_table_has_column('cash_events', 'scheduled_check_ym')) {
-            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Posting checks and hiding completed rows requires database migration <code class="text-xs">0005_cash_events_scheduled_check.sql</code>. Run <code class="text-xs">php bin/migrate.php</code> on the server.</p>';
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Monthly posting and Posted status require migration <code class="text-xs">0005_cash_events_scheduled_check.sql</code>. Run <code class="text-xs">php bin/migrate.php</code> on the server.</p>';
         }
         echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a> · <a class="text-sm text-slate-600 underline" href="/cash-events">Cash events</a>';
         if (isset($_GET['posted']) && (string) $_GET['posted'] === '1') {
@@ -1086,10 +1101,10 @@ $routes = [
         echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
         echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
         echo '<th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Method</th>';
-        echo '<th class="px-3 py-2 font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Post</th><th class="px-3 py-2 font-medium">Notes</th>';
+        echo '<th class="px-3 py-2 font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Post</th><th class="px-3 py-2 font-medium">Status</th>';
         echo '</tr></thead><tbody>';
         if ($monthlyRows === []) {
-            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="6">No interest-only, amortizing, or post-prepaid loans with an outstanding check for this month.</td></tr>';
+            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="6">No interest-only, amortizing, or post-prepaid loans for this calendar month.</td></tr>';
         } else {
             foreach ($monthlyRows as $row) {
                 $loanId = (int) ($row['id'] ?? 0);
@@ -1106,10 +1121,7 @@ $routes = [
                 $monthlyIntStr = $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
 
                 $expectedCellHtml = '<span class="text-slate-400">—</span>';
-                $notes = '';
-                $checkAttrs = ' type="checkbox" name="loan_ids[]" value="' . e((string) $loanId) . '" class="h-4 w-4 rounded border-slate-300"';
-                $paymentTotal = checks_expected_payment_total_for_row($row, $selectedYm);
-
+                $paidOff = false;
                 if ($calcMethod === 'fixed') {
                     if ($monthlyIntStr !== '') {
                         $paymentStr = checks_normalize_money_2($monthlyIntStr);
@@ -1127,7 +1139,6 @@ $routes = [
                     }
                     if ($paidOff) {
                         $expectedCellHtml = '<div class="font-medium text-slate-400">—</div><div class="text-xs text-slate-500">Paid off</div>';
-                        $checkAttrs = ' type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"';
                     } else {
                         $interestStr = checks_declining_monthly_interest($remainingStr, $annualStr);
                         $principalPortionStr = checks_normalize_money_2($mppStr);
@@ -1138,8 +1149,22 @@ $routes = [
                     }
                 }
 
-                if ($paymentTotal === null) {
-                    $checkAttrs = ' type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"';
+                $monthlyPosted = checks_monthly_check_already_posted($row);
+                $paymentTotal = checks_expected_payment_total_for_row($row, $selectedYm);
+
+                if ($monthlyPosted) {
+                    $postCell = '<span class="text-slate-400">—</span>';
+                    $statusCell = '<span class="font-medium text-emerald-800">Posted</span>';
+                } elseif ($calcMethod === 'declining_balance' && $paidOff) {
+                    $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Post this check</span></label>';
+                    $statusCell = '<span class="text-slate-600">Paid off</span>';
+                } elseif ($paymentTotal === null) {
+                    $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Post this check</span></label>';
+                    $statusCell = '<span class="text-slate-600">No payment</span>';
+                } else {
+                    $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" name="loan_ids[]" value="'
+                        . e((string) $loanId) . '" class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Post this check</span></label>';
+                    $statusCell = '<span class="text-slate-600">Not posted</span>';
                 }
 
                 echo '<tr class="border-t border-slate-100">';
@@ -1147,8 +1172,8 @@ $routes = [
                 echo '<td class="px-3 py-2">' . e($loanName) . '</td>';
                 echo '<td class="px-3 py-2">' . e($calcMethod) . '</td>';
                 echo '<td class="px-3 py-2">' . $expectedCellHtml . '</td>';
-                echo '<td class="px-3 py-2"><label class="inline-flex items-center gap-2"><input' . $checkAttrs . '> <span class="sr-only">Post this check</span></label></td>';
-                echo '<td class="px-3 py-2 text-slate-600">' . e($notes) . '</td>';
+                echo '<td class="px-3 py-2">' . $postCell . '</td>';
+                echo '<td class="px-3 py-2">' . $statusCell . '</td>';
                 echo '</tr>';
             }
         }
@@ -1205,7 +1230,7 @@ $routes = [
         echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="event_date" name="event_date" type="date" value="' . e($today) . '" required></div>';
         echo '<button class="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white" type="submit">Post cash events</button>';
         echo '</div>';
-        echo '<p class="text-xs text-slate-500"><strong>Monthly table:</strong> one <strong>interest</strong> cash event per checked loan (expected payment) with <code class="text-xs">scheduled_check_ym</code> set to the month shown; those loans drop off this list for that month once posted. <strong>Prepaid table:</strong> one <strong>interest</strong> event for the lump <code class="text-xs">prepaid_interest_amount</code> (<code class="text-xs">scheduled_check_ym</code> left blank); use the event date you need (often close or funding date).</p>';
+        echo '<p class="text-xs text-slate-500"><strong>Monthly table:</strong> one <strong>interest</strong> cash event per checked loan (expected payment) with <code class="text-xs">scheduled_check_ym</code> set to the month shown; after posting, the row stays visible with status <strong>Posted</strong>. <strong>Prepaid table:</strong> one <strong>interest</strong> event for the lump <code class="text-xs">prepaid_interest_amount</code> (<code class="text-xs">scheduled_check_ym</code> left blank); use the event date you need (often close or funding date).</p>';
         echo '</form>';
 
         echo '</div></body></html>';
@@ -1298,6 +1323,9 @@ $routes = [
                     continue;
                 }
                 $row = $eligibleMonthlyById[$loanId];
+                if (checks_monthly_check_already_posted($row)) {
+                    continue;
+                }
                 $amountStr = checks_expected_payment_total_for_row($row, $selectedYm);
                 if ($amountStr === null) {
                     continue;
