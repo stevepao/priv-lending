@@ -187,4 +187,199 @@ final class ChecksController
 
         return $out;
     }
+
+    public function store(): void
+    {
+        csrf_verify_or_die();
+
+        $monthParam = trim((string) ($_POST['month'] ?? ''));
+        $selectedYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
+        if (preg_match('/^\d{4}-\d{2}$/', $monthParam) === 1) {
+            $parsedMonth = DateTimeImmutable::createFromFormat('Y-m', $monthParam);
+            if ($parsedMonth instanceof DateTimeImmutable && $parsedMonth->format('Y-m') === $monthParam) {
+                $selectedYm = $monthParam;
+            }
+        }
+
+        $eventDateRaw = trim((string) ($_POST['event_date'] ?? ''));
+        $parsedEvent = DateTimeImmutable::createFromFormat('Y-m-d', $eventDateRaw);
+        $eventDate = $parsedEvent instanceof DateTimeImmutable && $parsedEvent->format('Y-m-d') === $eventDateRaw
+            ? $eventDateRaw
+            : null;
+
+        $loanIdsPost = $_POST['loan_ids'] ?? [];
+        if (!is_array($loanIdsPost)) {
+            $loanIdsPost = [];
+        }
+        $loanIdSet = [];
+        foreach ($loanIdsPost as $raw) {
+            $lid = (int) $raw;
+            if ($lid > 0) {
+                $loanIdSet[$lid] = true;
+            }
+        }
+        $loanIdList = array_keys($loanIdSet);
+
+        $prepaidIdsPost = $_POST['prepaid_loan_ids'] ?? [];
+        if (!is_array($prepaidIdsPost)) {
+            $prepaidIdsPost = [];
+        }
+        $prepaidIdSet = [];
+        foreach ($prepaidIdsPost as $raw) {
+            $pid = (int) $raw;
+            if ($pid > 0) {
+                $prepaidIdSet[$pid] = true;
+            }
+        }
+        $prepaidIdList = array_keys($prepaidIdSet);
+
+        if ($eventDate === null || ($loanIdList === [] && $prepaidIdList === [])) {
+            header('Location: /checks?month=' . rawurlencode($selectedYm) . '&posted=0');
+            exit;
+        }
+
+        $rows = checks_fetch_loan_rows_for_checks_page($selectedYm);
+        $eligibleMonthlyById = [];
+        $eligiblePrepaidById = [];
+        foreach ($rows as $row) {
+            $lid = (int) ($row['id'] ?? 0);
+            if ($lid < 1) {
+                continue;
+            }
+            $ptype = (string) ($row['payment_type'] ?? '');
+            if ($ptype === 'prepaid') {
+                $pDateRaw = $row['prepaid_interest_date'] ?? null;
+                $pDateStr = $pDateRaw !== null && $pDateRaw !== '' ? (string) $pDateRaw : null;
+                if (checks_selected_month_within_prepaid_window($pDateStr, $selectedYm)) {
+                    $eligiblePrepaidById[$lid] = $row;
+                } else {
+                    $eligibleMonthlyById[$lid] = $row;
+                }
+            } elseif (in_array($ptype, ['interest_only', 'amortizing'], true)) {
+                $eligibleMonthlyById[$lid] = $row;
+            }
+        }
+
+        if (!schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+            header('Location: /checks?month=' . rawurlencode($selectedYm) . '&posted=0');
+            exit;
+        }
+
+        $pdo = db();
+        $insertCashStmt = $pdo->prepare(
+            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $posted = 0;
+        $pdo->beginTransaction();
+        try {
+            foreach ($loanIdList as $loanId) {
+                if (!isset($eligibleMonthlyById[$loanId])) {
+                    continue;
+                }
+                $row = $eligibleMonthlyById[$loanId];
+                if (checks_monthly_check_already_posted($row)) {
+                    continue;
+                }
+                $split = checks_expected_payment_interest_principal_split_for_row($row, $selectedYm);
+                if ($split === null) {
+                    continue;
+                }
+                $depositTo = checks_funding_source_for_row($row);
+                if ($depositTo === null) {
+                    continue;
+                }
+                $interestAmt = $split['interest'];
+                $principalAmt = $split['principal_in'];
+                $interestPositive = extension_loaded('bcmath')
+                    ? bccomp($interestAmt, '0', 2) === 1
+                    : (float) $interestAmt > 0.0;
+                $principalPositive = extension_loaded('bcmath')
+                    ? bccomp($principalAmt, '0', 2) === 1
+                    : (float) $principalAmt > 0.0;
+                if (!$interestPositive && !$principalPositive) {
+                    continue;
+                }
+                $baseNotes = 'Checks ' . $selectedYm . ' (from /checks)';
+                $sp = 'sp_ce_' . $loanId;
+                $pdo->exec('SAVEPOINT `' . $sp . '`');
+                try {
+                    if ($interestPositive) {
+                        $insertCashStmt->execute([
+                            $loanId,
+                            $selectedYm,
+                            $eventDate,
+                            $interestAmt,
+                            'interest',
+                            $depositTo,
+                            $baseNotes . ' — interest',
+                        ]);
+                    }
+                    if ($principalPositive) {
+                        $insertCashStmt->execute([
+                            $loanId,
+                            $selectedYm,
+                            $eventDate,
+                            $principalAmt,
+                            'principal_in',
+                            $depositTo,
+                            $baseNotes . ' — principal',
+                        ]);
+                    }
+                    $pdo->exec('RELEASE SAVEPOINT `' . $sp . '`');
+                    ++$posted;
+                } catch (PDOException $e) {
+                    $pdo->exec('ROLLBACK TO SAVEPOINT `' . $sp . '`');
+                    $sqlState = $e->errorInfo[1] ?? null;
+                    if ((int) $sqlState === 1062) {
+                        continue;
+                    }
+                    throw $e;
+                }
+            }
+
+            if ($prepaidIdList !== [] && schema_table_has_column('loans', 'prepaid_interest_received')) {
+                $updPrepaid = $pdo->prepare(
+                    'UPDATE loans SET prepaid_interest_received = 1 WHERE id = ? AND payment_type = \'prepaid\' AND prepaid_interest_received = 0'
+                );
+                $delEvent = $pdo->prepare('DELETE FROM cash_events WHERE id = ?');
+                foreach ($prepaidIdList as $loanId) {
+                    if (!isset($eligiblePrepaidById[$loanId])) {
+                        continue;
+                    }
+                    $row = $eligiblePrepaidById[$loanId];
+                    if (checks_prepaid_interest_already_received($row)) {
+                        continue;
+                    }
+                    $amountStr = checks_prepaid_interest_amount_db_string($row);
+                    if ($amountStr === null) {
+                        continue;
+                    }
+                    $depositTo = checks_funding_source_for_row($row);
+                    if ($depositTo === null) {
+                        continue;
+                    }
+                    $notes = 'Prepaid interest (Checks; month viewed ' . $selectedYm . ')';
+                    $insertCashStmt->execute([$loanId, null, $eventDate, $amountStr, 'interest', $depositTo, $notes]);
+                    $newEventId = (int) $pdo->lastInsertId();
+                    $updPrepaid->execute([$loanId]);
+                    if ($updPrepaid->rowCount() !== 1) {
+                        if ($newEventId > 0) {
+                            $delEvent->execute([$newEventId]);
+                        }
+
+                        continue;
+                    }
+                    ++$posted;
+                }
+            }
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        header('Location: /checks?month=' . rawurlencode($selectedYm) . '&posted=' . ($posted > 0 ? '1' : '0'));
+        exit;
+    }
 }
