@@ -13,7 +13,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 1. **GET /checks** — Page loads; title “Interest checks”; Tailwind CDN present.
 2. **Month control** — Default month is current calendar month; changing month and **Show** updates the list (same query params as before).
-3. **Copy / banners** — Intro paragraph, optional amber banner when `scheduled_check_ym` is missing, optional amber banner when `prepaid_interest_received` is missing, footer note under the post button match prior behavior.
+3. **Copy / banners** — Intro paragraph, optional amber banner when `scheduled_check_ym` is missing (0005), optional amber when split-posting index is missing (0007) but 0005 applied, optional amber when `prepaid_interest_received` is missing (0006), footer note under the post button describes monthly + prepaid posting.
 4. **Nav links** — Dashboard, Loans, Cash events (same classes as before).
 5. **Flash** — `?posted=1` shows green success; `?posted=0` shows amber “nothing posted” (after POST redirect).
 6. **Monthly table** — Rows, expected payment math, Post/Status (Posted / Not posted / Paid off / No payment), empty state message when no rows.
@@ -22,8 +22,8 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 ## POST /checks (still in index.php)
 
-9. Posting monthly and/or prepaid selections still creates cash events and redirects with `posted=` as before.
-10. Duplicate / invalid submissions behave as before.
+9. **POST /checks (monthly)** — With migrations through **0007**, declining-balance loans insert two `cash_events` for the same `scheduled_check_ym` (category `interest` and `principal_in`) whose amounts match the split shown on GET /checks; fixed-calculation loans still insert a single `interest` event. Prepaid path unchanged (one interest event, `scheduled_check_ym` null).
+10. Duplicate / invalid submissions behave as before; duplicate key on a second portion rolls back that loan’s savepoint so the ledger stays consistent.
 
 ## Loans (LoansController + views)
 
@@ -37,7 +37,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 16. **GET /cash-events** — Table includes **Actions** with **Edit** per row; empty state colspan matches column count.
 17. **GET /cash-events/edit?id=…** — Loads the event; form matches **New cash event** fields with current values; optional banner when `scheduled_check_ym` is set (migration applied); invalid query shows same amber message as new.
-18. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym)`.
+18. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym, category)`.
 19. **GET /cash-events/new** and **POST /cash-events/new** — Unchanged.
 
 ## Other routes

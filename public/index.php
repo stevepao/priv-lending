@@ -423,6 +423,26 @@ function schema_table_has_column(string $table, string $column): bool
 }
 
 /**
+ * True when migration 0007 applied: unique (loan_id, scheduled_check_ym, category) so a check can post interest and principal separately.
+ */
+function schema_cash_events_has_scheduled_category_unique(): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    if (!schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+        return $cache = false;
+    }
+    $row = dbOne(
+        'SELECT 1 AS ok FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
+        ['cash_events', 'uq_cash_events_loan_scheduled_category']
+    );
+
+    return $cache = ($row !== null);
+}
+
+/**
  * Column names present on `loans` in the current database (cached per request).
  *
  * @return array<string, true>
@@ -591,6 +611,66 @@ function checks_expected_payment_total_for_row(array $row, string $selectedYm): 
     }
 
     return $paymentStr;
+}
+
+/**
+ * Interest vs principal portions for posting a monthly check (same math as checks_expected_payment_total_for_row).
+ * Fixed-calculation loans: full expected amount is interest; principal portion is 0.
+ * Declining balance: interest on remaining balance plus monthly principal paydown.
+ *
+ * @param array<string, mixed> $row
+ *
+ * @return array{interest: string, principal_in: string}|null
+ */
+function checks_expected_payment_interest_principal_split_for_row(array $row, string $selectedYm): ?array
+{
+    $origin = (string) ($row['origin_date'] ?? '');
+    if ($origin === '') {
+        return null;
+    }
+    $principalAmountStr = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '0.00';
+    $annualStr = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '0.000';
+    $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
+    if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
+        $calcMethod = 'fixed';
+    }
+    $mppStr = $row['principal_payment_monthly'] !== null && $row['principal_payment_monthly'] !== '' ? (string) $row['principal_payment_monthly'] : '0.00';
+    $monthlyIntStr = $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
+
+    if ($calcMethod === 'fixed') {
+        if ($monthlyIntStr !== '') {
+            $interestStr = checks_normalize_money_2($monthlyIntStr);
+        } else {
+            $interestStr = loan_simple_monthly_interest($principalAmountStr, $annualStr);
+        }
+        $principalInStr = checks_normalize_money_2('0.00');
+    } else {
+        $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $selectedYm);
+        $remainingStr = loan_remaining_principal_after_paydowns($principalAmountStr, $mppStr, $monthsElapsed);
+        if (extension_loaded('bcmath')) {
+            $paidOff = bccomp($remainingStr, '0', 2) <= 0;
+        } else {
+            $paidOff = (float) $remainingStr <= 0.0;
+        }
+        if ($paidOff) {
+            return null;
+        }
+        $interestStr = checks_declining_monthly_interest($remainingStr, $annualStr);
+        $principalInStr = checks_normalize_money_2($mppStr);
+    }
+
+    $interestStr = checks_normalize_money_2($interestStr);
+    $principalInStr = checks_normalize_money_2($principalInStr);
+    $totalStr = checks_add_money_2($interestStr, $principalInStr);
+    if (extension_loaded('bcmath')) {
+        if (bccomp($totalStr, '0', 2) !== 1) {
+            return null;
+        }
+    } elseif ((float) $totalStr <= 0.0) {
+        return null;
+    }
+
+    return ['interest' => $interestStr, 'principal_in' => $principalInStr];
 }
 
 /**
@@ -1047,8 +1127,8 @@ $routes = [
         }
 
         $pdo = db();
-        $insertStmt = $pdo->prepare(
-            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, \'interest\', ?, ?)'
+        $insertCashStmt = $pdo->prepare(
+            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $posted = 0;
         $pdo->beginTransaction();
@@ -1061,19 +1141,55 @@ $routes = [
                 if (checks_monthly_check_already_posted($row)) {
                     continue;
                 }
-                $amountStr = checks_expected_payment_total_for_row($row, $selectedYm);
-                if ($amountStr === null) {
+                $split = checks_expected_payment_interest_principal_split_for_row($row, $selectedYm);
+                if ($split === null) {
                     continue;
                 }
                 $depositTo = checks_funding_source_for_row($row);
                 if ($depositTo === null) {
                     continue;
                 }
-                $notes = 'Checks ' . $selectedYm . ' (from /checks)';
+                $interestAmt = $split['interest'];
+                $principalAmt = $split['principal_in'];
+                $interestPositive = extension_loaded('bcmath')
+                    ? bccomp($interestAmt, '0', 2) === 1
+                    : (float) $interestAmt > 0.0;
+                $principalPositive = extension_loaded('bcmath')
+                    ? bccomp($principalAmt, '0', 2) === 1
+                    : (float) $principalAmt > 0.0;
+                if (!$interestPositive && !$principalPositive) {
+                    continue;
+                }
+                $baseNotes = 'Checks ' . $selectedYm . ' (from /checks)';
+                $sp = 'sp_ce_' . $loanId;
+                $pdo->exec('SAVEPOINT `' . $sp . '`');
                 try {
-                    $insertStmt->execute([$loanId, $selectedYm, $eventDate, $amountStr, $depositTo, $notes]);
+                    if ($interestPositive) {
+                        $insertCashStmt->execute([
+                            $loanId,
+                            $selectedYm,
+                            $eventDate,
+                            $interestAmt,
+                            'interest',
+                            $depositTo,
+                            $baseNotes . ' — interest',
+                        ]);
+                    }
+                    if ($principalPositive) {
+                        $insertCashStmt->execute([
+                            $loanId,
+                            $selectedYm,
+                            $eventDate,
+                            $principalAmt,
+                            'principal_in',
+                            $depositTo,
+                            $baseNotes . ' — principal',
+                        ]);
+                    }
+                    $pdo->exec('RELEASE SAVEPOINT `' . $sp . '`');
                     ++$posted;
                 } catch (PDOException $e) {
+                    $pdo->exec('ROLLBACK TO SAVEPOINT `' . $sp . '`');
                     $sqlState = $e->errorInfo[1] ?? null;
                     if ((int) $sqlState === 1062) {
                         continue;
@@ -1104,7 +1220,7 @@ $routes = [
                         continue;
                     }
                     $notes = 'Prepaid interest (Checks; month viewed ' . $selectedYm . ')';
-                    $insertStmt->execute([$loanId, null, $eventDate, $amountStr, $depositTo, $notes]);
+                    $insertCashStmt->execute([$loanId, null, $eventDate, $amountStr, 'interest', $depositTo, $notes]);
                     $newEventId = (int) $pdo->lastInsertId();
                     $updPrepaid->execute([$loanId]);
                     if ($updPrepaid->rowCount() !== 1) {
@@ -1400,7 +1516,7 @@ $routes = [
         }
 
         $schCol = schema_table_has_column('cash_events', 'scheduled_check_ym');
-        $sel = $schCol ? 'loan_id, scheduled_check_ym' : 'loan_id';
+        $sel = $schCol ? 'loan_id, scheduled_check_ym, category' : 'loan_id, category';
         $existing = dbOne('SELECT ' . $sel . ' FROM cash_events WHERE id = ?', [$id]);
         if ($existing === null) {
             header('Location: /cash-events');
@@ -1469,9 +1585,10 @@ $routes = [
         if ($schYmVal !== null) {
             $newLoanId = $loanId;
             if ($oldLoanId !== $newLoanId) {
+                $catExisting = (string) ($existing['category'] ?? 'interest');
                 $dup = dbOne(
-                    'SELECT id FROM cash_events WHERE loan_id <=> ? AND scheduled_check_ym = ? AND id != ?',
-                    [$newLoanId, $schYmVal, $id]
+                    'SELECT id FROM cash_events WHERE loan_id <=> ? AND scheduled_check_ym = ? AND category = ? AND id != ?',
+                    [$newLoanId, $schYmVal, $catExisting, $id]
                 );
                 if ($dup !== null) {
                     $redirectInvalid($id);

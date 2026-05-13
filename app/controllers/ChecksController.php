@@ -43,6 +43,8 @@ final class ChecksController
         $today = (new DateTimeImmutable('today'))->format('Y-m-d');
         $showScheduledCheckMigrationBanner = !schema_table_has_column('cash_events', 'scheduled_check_ym');
         $showPrepaidMigrationBanner = !schema_table_has_column('loans', 'prepaid_interest_received');
+        $showChecksCategoryUniqueMigrationBanner = schema_table_has_column('cash_events', 'scheduled_check_ym')
+            && !schema_cash_events_has_scheduled_category_unique();
         $postedSuccess = isset($_GET['posted']) && (string) $_GET['posted'] === '1';
         $postedFailure = isset($_GET['posted']) && (string) $_GET['posted'] === '0';
 
@@ -57,6 +59,7 @@ final class ChecksController
             'today' => $today,
             'showScheduledCheckMigrationBanner' => $showScheduledCheckMigrationBanner,
             'showPrepaidMigrationBanner' => $showPrepaidMigrationBanner,
+            'showChecksCategoryUniqueMigrationBanner' => $showChecksCategoryUniqueMigrationBanner,
             'postedSuccess' => $postedSuccess,
             'postedFailure' => $postedFailure,
         ]);
