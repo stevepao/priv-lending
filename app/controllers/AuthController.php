@@ -6,11 +6,10 @@ final class AuthController
 {
     public function loginForm(): void
     {
-        $title = 'Login';
         header('Content-Type: text/html; charset=utf-8');
-        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>' . e($title) . '</title></head><body>';
-        echo '<form method="post" action="/login">' . csrf_field() . '<button type="submit">Sign in</button></form>';
-        echo '</body></html>';
+        render('auth_login', [
+            'title' => 'Login',
+        ]);
     }
 
     public function login(): void

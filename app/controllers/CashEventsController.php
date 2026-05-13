@@ -20,54 +20,10 @@ final class CashEventsController
             []
         );
         header('Content-Type: text/html; charset=utf-8');
-        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
-        echo '<script src="https://cdn.tailwindcss.com"></script>';
-        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
-        echo '<div class="mx-auto max-w-6xl space-y-4">';
-        echo '<div class="flex flex-wrap items-center justify-between gap-4">';
-        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
-        echo '<a class="rounded bg-slate-900 px-3 py-2 text-sm text-white" href="/cash-events/new">New cash event</a>';
-        echo '</div>';
-        echo '<p class="text-sm text-slate-600">Ledger of cash movements. Events from <strong>Checks</strong> include the scheduled month in <code class="text-xs">scheduled_check_ym</code> when set.</p>';
-        echo '<p class="text-sm"><a class="text-slate-600 underline" href="/">Dashboard</a> · <a class="text-slate-600 underline" href="/checks">Checks</a> · <a class="text-slate-600 underline" href="/loans">Loans</a></p>';
-        echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
-        echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
-        echo '<th class="px-3 py-2 font-medium">Date</th><th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th>';
-        echo '<th class="px-3 py-2 font-medium">Amount</th><th class="px-3 py-2 font-medium">Category</th><th class="px-3 py-2 font-medium">Deposit to</th>';
-        echo '<th class="px-3 py-2 font-medium">Check month</th><th class="px-3 py-2 font-medium">Notes</th><th class="px-3 py-2 font-medium">Actions</th>';
-        echo '</tr></thead><tbody>';
-        if ($rows === []) {
-            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="9">No cash events yet.</td></tr>';
-        } else {
-            foreach ($rows as $row) {
-                $id = (string) ($row['id'] ?? '');
-                $ed = (string) ($row['event_date'] ?? '');
-                $ent = (string) ($row['entity_name'] ?? '');
-                $loan = (string) ($row['loan_name'] ?? '');
-                if ($loan === '' && ($row['loan_id'] ?? null) === null) {
-                    $loan = '—';
-                } elseif ($loan === '') {
-                    $loan = '#' . (string) ($row['loan_id'] ?? '');
-                }
-                $amt = $row['amount'] !== null && $row['amount'] !== '' ? (string) $row['amount'] : '';
-                $cat = (string) ($row['category'] ?? '');
-                $dep = $row['deposit_to'] !== null && $row['deposit_to'] !== '' ? (string) $row['deposit_to'] : '—';
-                $scm = $row['scheduled_check_ym'] !== null && $row['scheduled_check_ym'] !== '' ? (string) $row['scheduled_check_ym'] : '—';
-                $notes = $row['notes'] !== null && $row['notes'] !== '' ? (string) $row['notes'] : '';
-                echo '<tr class="border-t border-slate-100">';
-                echo '<td class="px-3 py-2">' . e($ed) . '</td>';
-                echo '<td class="px-3 py-2">' . e($ent !== '' ? $ent : '—') . '</td>';
-                echo '<td class="px-3 py-2">' . e($loan) . '</td>';
-                echo '<td class="px-3 py-2 font-medium">' . e($amt) . '</td>';
-                echo '<td class="px-3 py-2">' . e($cat) . '</td>';
-                echo '<td class="px-3 py-2">' . e($dep) . '</td>';
-                echo '<td class="px-3 py-2">' . e($scm) . '</td>';
-                echo '<td class="px-3 py-2 text-slate-600">' . e($notes) . '</td>';
-                echo '<td class="px-3 py-2"><a class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-800 hover:bg-slate-50" href="/cash-events/edit?id=' . e($id) . '">Edit</a></td>';
-                echo '</tr>';
-            }
-        }
-        echo '</tbody></table></div></div></body></html>';
+        render('cash_events_index', [
+            'title' => $title,
+            'rows' => $rows,
+        ]);
     }
 
     public function newForm(): void
@@ -77,47 +33,14 @@ final class CashEventsController
             'SELECT l.id, l.name, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
             []
         );
-        header('Content-Type: text/html; charset=utf-8');
-        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
-        echo '<script src="https://cdn.tailwindcss.com"></script>';
-        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
-        echo '<div class="mx-auto max-w-xl space-y-4">';
-        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
-        echo '<p class="text-sm text-slate-600">Record a payment or adjustment outside the monthly Checks flow. These events are not tied to a scheduled check month.</p>';
-        echo '<a class="text-sm text-slate-600 underline" href="/cash-events">Back to cash events</a>';
-        if (isset($_GET['invalid'])) {
-            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Please fix the highlighted fields and try again.</p>';
-        }
-        echo '<form class="space-y-4 rounded border border-slate-200 bg-white p-4 shadow-sm" method="post" action="/cash-events/new">';
-        echo csrf_field();
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="loan_id">Loan (optional)</label>';
-        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="loan_id" name="loan_id">';
-        echo '<option value="">— None —</option>';
-        foreach ($loans as $lr) {
-            $lid = (string) ($lr['id'] ?? '');
-            $label = e((string) ($lr['entity_name'] ?? '')) . ' — ' . e((string) ($lr['name'] ?? ''));
-            echo '<option value="' . e($lid) . '">' . $label . '</option>';
-        }
-        echo '</select></div>';
         $today = (new DateTimeImmutable('today'))->format('Y-m-d');
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="event_date">Event date</label>';
-        echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="event_date" name="event_date" type="date" required value="' . e($today) . '"></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="amount">Amount</label>';
-        echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="amount" name="amount" type="text" inputmode="decimal" required placeholder="0.00"></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="category">Category</label>';
-        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="category" name="category" required>';
-        foreach (['interest', 'principal_in', 'loc_interest', 'principal_out'] as $c) {
-            echo '<option value="' . e($c) . '"' . ($c === 'interest' ? ' selected' : '') . '>' . e($c) . '</option>';
-        }
-        echo '</select></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="deposit_to">Deposit to</label>';
-        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="deposit_to" name="deposit_to">';
-        echo '<option value="">—</option><option value="JPM">JPM</option><option value="NTRS">NTRS</option></select></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="notes">Notes</label>';
-        echo '<textarea class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="notes" name="notes" rows="3"></textarea></div>';
-        echo '<div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>';
-        echo '<a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/cash-events">Cancel</a></div>';
-        echo '</form></div></body></html>';
+        header('Content-Type: text/html; charset=utf-8');
+        render('cash_events_new', [
+            'title' => $title,
+            'loans' => $loans,
+            'today' => $today,
+            'showInvalid' => isset($_GET['invalid']),
+        ]);
     }
 
     public function create(): void
@@ -227,52 +150,20 @@ final class CashEventsController
         $notesVal = $event['notes'] !== null && $event['notes'] !== '' ? (string) $event['notes'] : '';
         $scmVal = $event['scheduled_check_ym'] !== null && $event['scheduled_check_ym'] !== '' ? (string) $event['scheduled_check_ym'] : '';
         header('Content-Type: text/html; charset=utf-8');
-        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
-        echo '<script src="https://cdn.tailwindcss.com"></script>';
-        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
-        echo '<div class="mx-auto max-w-xl space-y-4">';
-        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
-        echo '<p class="text-sm text-slate-600">Update this cash event. The scheduled check month (if any) stays linked to this row and is not changed here.</p>';
-        echo '<a class="text-sm text-slate-600 underline" href="/cash-events">Back to cash events</a>';
-        if ($schCol && $scmVal !== '') {
-            echo '<p class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">Linked check month: <code class="text-xs">' . e($scmVal) . '</code> (from Checks posting).</p>';
-        }
-        if (isset($_GET['invalid'])) {
-            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Please fix the highlighted fields and try again.</p>';
-        }
-        echo '<form class="space-y-4 rounded border border-slate-200 bg-white p-4 shadow-sm" method="post" action="/cash-events/edit">';
-        echo csrf_field();
-        echo '<input type="hidden" name="id" value="' . e((string) $id) . '">';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="loan_id">Loan (optional)</label>';
-        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="loan_id" name="loan_id">';
-        echo '<option value=""' . ($curLoanId === '' ? ' selected' : '') . '>— None —</option>';
-        foreach ($loans as $lr) {
-            $lid = (string) ($lr['id'] ?? '');
-            $label = e((string) ($lr['entity_name'] ?? '')) . ' — ' . e((string) ($lr['name'] ?? ''));
-            $sel = $lid === $curLoanId ? ' selected' : '';
-            echo '<option value="' . e($lid) . '"' . $sel . '>' . $label . '</option>';
-        }
-        echo '</select></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="event_date">Event date</label>';
-        echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="event_date" name="event_date" type="date" required value="' . e($eventDateVal) . '"></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="amount">Amount</label>';
-        echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="amount" name="amount" type="text" inputmode="decimal" required placeholder="0.00" value="' . e($amountVal) . '"></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="category">Category</label>';
-        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="category" name="category" required>';
-        foreach (['interest', 'principal_in', 'loc_interest', 'principal_out'] as $c) {
-            $sel = $c === $catVal ? ' selected' : '';
-            echo '<option value="' . e($c) . '"' . $sel . '>' . e($c) . '</option>';
-        }
-        echo '</select></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="deposit_to">Deposit to</label>';
-        echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="deposit_to" name="deposit_to">';
-        echo '<option value=""' . ($depVal === '' ? ' selected' : '') . '>—</option>';
-        echo '<option value="JPM"' . ($depVal === 'JPM' ? ' selected' : '') . '>JPM</option><option value="NTRS"' . ($depVal === 'NTRS' ? ' selected' : '') . '>NTRS</option></select></div>';
-        echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="notes">Notes</label>';
-        echo '<textarea class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="notes" name="notes" rows="3">' . e($notesVal) . '</textarea></div>';
-        echo '<div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>';
-        echo '<a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/cash-events">Cancel</a></div>';
-        echo '</form></div></body></html>';
+        render('cash_events_edit', [
+            'title' => $title,
+            'eventId' => $id,
+            'schCol' => $schCol,
+            'scmVal' => $scmVal,
+            'showInvalid' => isset($_GET['invalid']),
+            'loans' => $loans,
+            'curLoanId' => $curLoanId,
+            'eventDateVal' => $eventDateVal,
+            'amountVal' => $amountVal,
+            'catVal' => $catVal,
+            'depVal' => $depVal,
+            'notesVal' => $notesVal,
+        ]);
     }
 
     public function update(): void
