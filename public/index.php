@@ -199,6 +199,51 @@ function loan_parse_checks_fields_from_post(string $paymentType)
 }
 
 /**
+ * Column names present on `loans` in the current database (cached per request).
+ *
+ * @return array<string, true>
+ */
+function loan_loans_column_name_index(): array
+{
+    static $idx = null;
+    if ($idx !== null) {
+        return $idx;
+    }
+    $colRows = dbAll(
+        'SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+        ['loans']
+    );
+    $idx = [];
+    foreach ($colRows as $colRow) {
+        $idx[(string) $colRow['c']] = true;
+    }
+
+    return $idx;
+}
+
+/**
+ * Comma-separated SELECT expressions for optional checklist columns (always aliased as monthly_interest, interest_calc_method, principal_payment_monthly).
+ *
+ * @param string $aliasPrefix e.g. "l." or ""
+ */
+function loan_sql_select_checks_column_expressions(string $aliasPrefix): string
+{
+    $names = loan_loans_column_name_index();
+    $p = $aliasPrefix;
+    $monthlyExpr = isset($names['monthly_interest'])
+        ? $p . 'monthly_interest'
+        : 'CAST(NULL AS DECIMAL(12,2)) AS monthly_interest';
+    $methodExpr = isset($names['interest_calc_method'])
+        ? $p . 'interest_calc_method'
+        : "'fixed' AS interest_calc_method";
+    $ppmExpr = isset($names['principal_payment_monthly'])
+        ? $p . 'principal_payment_monthly'
+        : 'CAST(NULL AS DECIMAL(12,2)) AS principal_payment_monthly';
+
+    return $monthlyExpr . ', ' . $methodExpr . ', ' . $ppmExpr;
+}
+
+/**
  * Loans for GET /checks: only reference optional columns when they exist so production DBs
  * that predate interest_calc_method (or other checklist fields) do not error.
  *
@@ -206,34 +251,9 @@ function loan_parse_checks_fields_from_post(string $paymentType)
  */
 function checks_fetch_loan_rows_for_checks_page(): array
 {
-    /** @var array<string, bool>|null */
-    static $columnNameIndex = null;
-    if ($columnNameIndex === null) {
-        $colRows = dbAll(
-            'SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
-            ['loans']
-        );
-        $columnNameIndex = [];
-        foreach ($colRows as $colRow) {
-            $columnNameIndex[(string) $colRow['c']] = true;
-        }
-    }
-
-    $monthlyInterestExpr = isset($columnNameIndex['monthly_interest'])
-        ? 'l.monthly_interest'
-        : 'CAST(NULL AS DECIMAL(12,2))';
-    $calcMethodExpr = isset($columnNameIndex['interest_calc_method'])
-        ? 'l.interest_calc_method'
-        : "'fixed'";
-    $principalMonthlyExpr = isset($columnNameIndex['principal_payment_monthly'])
-        ? 'l.principal_payment_monthly'
-        : 'CAST(NULL AS DECIMAL(12,2))';
-
     $sql = 'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, '
-        . $monthlyInterestExpr . ' AS monthly_interest, '
-        . $calcMethodExpr . ' AS interest_calc_method, '
-        . $principalMonthlyExpr . ' AS principal_payment_monthly, '
-        . 'l.payment_type, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
+        . loan_sql_select_checks_column_expressions('l.')
+        . ', l.payment_type, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
         . 'ORDER BY e.name ASC, l.name ASC';
 
     return dbAll($sql, []);
@@ -807,7 +827,9 @@ $routes = [
             exit;
         }
         $loan = dbOne(
-            'SELECT id, entity_id, name, funding_source, origin_date, maturity_date, payment_type, principal_amount, annual_interest_rate, monthly_interest, interest_calc_method, principal_payment_monthly, prepaid_interest_amount, prepaid_interest_date FROM loans WHERE id = ?',
+            'SELECT id, entity_id, name, funding_source, origin_date, maturity_date, payment_type, principal_amount, annual_interest_rate, '
+            . loan_sql_select_checks_column_expressions('')
+            . ', prepaid_interest_amount, prepaid_interest_date FROM loans WHERE id = ?',
             [$id]
         );
         if ($loan === null) {
@@ -1023,24 +1045,27 @@ $routes = [
             $redirect();
         }
 
-        $stmt = db()->prepare(
-            'INSERT INTO loans (entity_id, name, principal_amount, annual_interest_rate, monthly_interest, interest_calc_method, principal_payment_monthly, funding_source, origin_date, maturity_date, payment_type, prepaid_interest_amount, prepaid_interest_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)'
-        );
-        $stmt->execute([
-            $entityId,
-            $name,
-            $principalStr,
-            $rateStr,
-            $checksFields['monthly_interest'],
-            $checksFields['interest_calc_method'],
-            $checksFields['principal_payment_monthly'],
-            $funding,
-            $origin,
-            $maturity,
-            $paymentType,
-            $prepaidAmount,
-            $prepaidDate,
-        ]);
+        $idx = loan_loans_column_name_index();
+        $insertCols = ['entity_id', 'name', 'principal_amount', 'annual_interest_rate'];
+        $insertParams = [$entityId, $name, $principalStr, $rateStr];
+        if (isset($idx['monthly_interest'])) {
+            $insertCols[] = 'monthly_interest';
+            $insertParams[] = $checksFields['monthly_interest'];
+        }
+        if (isset($idx['interest_calc_method'])) {
+            $insertCols[] = 'interest_calc_method';
+            $insertParams[] = $checksFields['interest_calc_method'];
+        }
+        if (isset($idx['principal_payment_monthly'])) {
+            $insertCols[] = 'principal_payment_monthly';
+            $insertParams[] = $checksFields['principal_payment_monthly'];
+        }
+        $insertCols = array_merge($insertCols, ['funding_source', 'origin_date', 'maturity_date', 'payment_type', 'prepaid_interest_amount', 'prepaid_interest_date', 'notes']);
+        $insertParams = array_merge($insertParams, [$funding, $origin, $maturity, $paymentType, $prepaidAmount, $prepaidDate, null]);
+        $ph = implode(', ', array_fill(0, count($insertParams), '?'));
+        $sqlIns = 'INSERT INTO loans (' . implode(', ', $insertCols) . ') VALUES (' . $ph . ')';
+        $stmt = db()->prepare($sqlIns);
+        $stmt->execute($insertParams);
         header('Location: /loans');
         exit;
     },
@@ -1177,25 +1202,26 @@ $routes = [
             exit;
         }
 
-        $stmt = db()->prepare(
-            'UPDATE loans SET entity_id = ?, name = ?, principal_amount = ?, annual_interest_rate = ?, monthly_interest = ?, interest_calc_method = ?, principal_payment_monthly = ?, funding_source = ?, origin_date = ?, maturity_date = ?, payment_type = ?, prepaid_interest_amount = ?, prepaid_interest_date = ? WHERE id = ?'
-        );
-        $stmt->execute([
-            $entityId,
-            $name,
-            $principalStr,
-            $rateStr,
-            $checksFields['monthly_interest'],
-            $checksFields['interest_calc_method'],
-            $checksFields['principal_payment_monthly'],
-            $funding,
-            $origin,
-            $maturity,
-            $paymentType,
-            $prepaidAmount,
-            $prepaidDate,
-            $loanId,
-        ]);
+        $idx = loan_loans_column_name_index();
+        $setParts = ['entity_id = ?', 'name = ?', 'principal_amount = ?', 'annual_interest_rate = ?'];
+        $updParams = [$entityId, $name, $principalStr, $rateStr];
+        if (isset($idx['monthly_interest'])) {
+            $setParts[] = 'monthly_interest = ?';
+            $updParams[] = $checksFields['monthly_interest'];
+        }
+        if (isset($idx['interest_calc_method'])) {
+            $setParts[] = 'interest_calc_method = ?';
+            $updParams[] = $checksFields['interest_calc_method'];
+        }
+        if (isset($idx['principal_payment_monthly'])) {
+            $setParts[] = 'principal_payment_monthly = ?';
+            $updParams[] = $checksFields['principal_payment_monthly'];
+        }
+        $setParts = array_merge($setParts, ['funding_source = ?', 'origin_date = ?', 'maturity_date = ?', 'payment_type = ?', 'prepaid_interest_amount = ?', 'prepaid_interest_date = ?']);
+        $updParams = array_merge($updParams, [$funding, $origin, $maturity, $paymentType, $prepaidAmount, $prepaidDate, $loanId]);
+        $sqlUpd = 'UPDATE loans SET ' . implode(', ', $setParts) . ' WHERE id = ?';
+        $stmt = db()->prepare($sqlUpd);
+        $stmt->execute($updParams);
         header('Location: /loans');
         exit;
     },
