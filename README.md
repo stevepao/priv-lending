@@ -94,7 +94,9 @@ The built-in server (`php -S`) does **not** read `.htaccess`. Path-based routes 
 
 3. **Read the real error.** In IONOS Linux hosting, check **Logs** in the panel or files such as `~/logs/error.log` (exact path varies). The log line immediately after your request usually names the cause (e.g. unknown function, parse error, `Options not allowed here`).
 
-4. **Extensions.** Ensure **`pdo_mysql`** is enabled for the **web** PHP version (not only CLI).
+4. **Extensions.** Ensure **`pdo`** and **`pdo_mysql`** are enabled for the **web** PHP version (not only CLI). Many panels expose a separate “PHP extensions” or “modules” list per domain.
+
+5. **Quick probe.** With the app deployed, open **`/health.php`** on the same host. You should see `PHP 8.x`, `SAPI ...` (often `fpm` or `apache2handler`), and both extensions `yes`. If `pdo_mysql` is `no`, enable it for the site PHP and reload. **Delete `public/health.php` when you are done** so it is not left exposed.
 
 ---
 

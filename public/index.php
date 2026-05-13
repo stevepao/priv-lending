@@ -2,6 +2,15 @@
 
 declare(strict_types=1);
 
+if (!extension_loaded('pdo') || !extension_loaded('pdo_mysql')) {
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'This app needs the PDO and pdo_mysql extensions enabled for the web PHP build ('
+        . PHP_SAPI . ', PHP ' . PHP_VERSION . ").\n"
+        . "CLI can differ from Apache/FPM—enable MySQL PDO in the control panel, then remove public/health.php after checks.\n";
+    exit;
+}
+
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'security_headers.php';
 security_headers();
 
