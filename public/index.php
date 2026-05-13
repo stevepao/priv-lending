@@ -11,6 +11,13 @@ if (!extension_loaded('pdo') || !extension_loaded('pdo_mysql')) {
     exit;
 }
 
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'env.php';
+if (filter_var((string) env('APP_DEBUG', ''), FILTER_VALIDATE_BOOLEAN)) {
+    ini_set('display_errors', '1');
+    ini_set('display_startup_errors', '1');
+    error_reporting(E_ALL);
+}
+
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'security_headers.php';
 security_headers();
 

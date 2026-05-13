@@ -98,6 +98,8 @@ The built-in server (`php -S`) does **not** read `.htaccess`. Path-based routes 
 
 5. **Quick probe.** With the app deployed, open **`/health.php`** on the same host. You should see `PHP 8.x`, `SAPI ...` (often `fpm` or `apache2handler`), and both extensions `yes`. If `pdo_mysql` is `no`, enable it for the site PHP and reload. **Delete `public/health.php` when you are done** so it is not left exposed.
 
+6. **Still HTTP 500 with extensions OK?** Set **`APP_DEBUG=true`** in `.env`, reload once, and read the **PHP error message** shown in the browser (then set **`APP_DEBUG=false`** again). Common causes: the default **session save path** is not writable on shared hosting (this app falls back to **`sys_get_temp_dir()`** when needed), or TLS is terminated in front of PHP so **`HTTP_X_FORWARDED_PROTO`** must be honored for secure cookies (handled in `session.php`).
+
 ---
 
 ## Publishing to GitHub (new public repository)

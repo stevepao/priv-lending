@@ -7,7 +7,15 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'session.php';
 function csrf_token(): string
 {
     if (empty($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        try {
+            $raw = random_bytes(32);
+        } catch (Throwable $e) {
+            $raw = openssl_random_pseudo_bytes(32);
+            if ($raw === false) {
+                $raw = hash('sha256', uniqid((string) mt_rand(), true), true);
+            }
+        }
+        $_SESSION['csrf_token'] = bin2hex($raw);
     }
 
     return $_SESSION['csrf_token'];
