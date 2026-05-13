@@ -71,7 +71,7 @@ function loan_normalize_decimal_input(string $s, bool $stripPercentSuffix = fals
     return $s;
 }
 
-/** Full calendar months between origin month and selected month (day-of-month ignored). Used as count of principal paydowns applied before the start of the selected month (beginning balance for that month's interest). */
+/** Count of scheduled principal paydowns applied before the start of the selected calendar month (day-of-month ignored). The loan’s origin month has no paydown yet (first payment is modeled from the following calendar month), then one paydown per month through the month before the selected month. Equivalently: max(0, full_calendar_month_span(origin_month, selected_month) - 1). */
 function loan_months_elapsed_to_calendar_month(string $originYmd, string $selectedYm): int
 {
     $o = DateTimeImmutable::createFromFormat('Y-m-d', $originYmd);
@@ -92,7 +92,9 @@ function loan_months_elapsed_to_calendar_month(string $originYmd, string $select
     $y2 = (int) $sMonth->format('Y');
     $m2 = (int) $sMonth->format('n');
 
-    return max(0, ($y2 - $y1) * 12 + ($m2 - $m1));
+    $span = max(0, ($y2 - $y1) * 12 + ($m2 - $m1));
+
+    return max(0, $span - 1);
 }
 
 /** Remaining principal after linear paydown; clamped to >= 0. */
@@ -668,7 +670,7 @@ $routes = [
         echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="month" name="month" type="month" value="' . e($selectedYm) . '"></div>';
         echo '<button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Show</button>';
         echo '</form></div>';
-        echo '<p class="text-sm text-slate-600">Read-only expected payment for <strong>interest-only</strong> and <strong>amortizing</strong> loans. For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Prepaid loans are listed separately (unchanged). No data is saved from this page.</p>';
+        echo '<p class="text-sm text-slate-600">Read-only expected payment for <strong>interest-only</strong> and <strong>amortizing</strong> loans. For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Paydown count for the selected month excludes the loan’s origin month (first modeled paydown is the month after the origin month). Prepaid loans are listed separately (unchanged). No data is saved from this page.</p>';
         echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a>';
 
         echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
