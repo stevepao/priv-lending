@@ -2,7 +2,22 @@
 
 declare(strict_types=1);
 
-if (session_status() !== PHP_SESSION_ACTIVE) {
+function bootstrap_session(): void
+{
+    if (session_status() !== PHP_SESSION_NONE) {
+        return;
+    }
+
+    $sentFile = '';
+    $sentLine = 0;
+    if (headers_sent($sentFile, $sentLine)) {
+        if (filter_var((string) env('APP_DEBUG', ''), FILTER_VALIDATE_BOOLEAN)) {
+            throw new RuntimeException(
+                'Headers already sent before session_start at ' . $sentFile . ':' . (string) $sentLine
+            );
+        }
+    }
+
     $savePath = session_save_path();
     $tmp = sys_get_temp_dir();
     if ($savePath === '' || !is_writable($savePath)) {
