@@ -3,8 +3,9 @@
 ## Structure
 
 1. `app/controllers/ChecksController.php` exists; `app/views/checks.php` exists.
-2. `public/index.php` bootstraps unchanged (env, session, csrf, security headers, `e()`, `db`, helpers, `render()`).
-3. `ChecksController` is required once from `public/index.php` before the route table.
+2. `app/controllers/LoansController.php` exists; `app/views/loans.php` and `app/views/loans_new.php` exist.
+3. `public/index.php` bootstraps unchanged (env, session, csrf, security headers, `e()`, `db`, helpers, `render()`).
+4. `ChecksController` and `LoansController` are each required once from `public/index.php` before the route table.
 
 ## GET /checks (ChecksController + view)
 
@@ -24,7 +25,15 @@ Run logged in, with migrations applied if you use posting / Posted status.
 9. Posting monthly and/or prepaid selections still creates cash events and redirects with `posted=` as before.
 10. Duplicate / invalid submissions behave as before.
 
+## Loans (LoansController + views)
+
+11. **GET /loans** — Page loads; title “Loans”; **New loan** link; Dashboard link; table headers and empty state “No loans yet.” when there are no rows; with data: columns match prior list (principal tooltip on IO/amortizing, implied annual cell when applicable, Edit links to `/loans/edit?id=…`).
+12. **GET /loans/new** — Form fields, copy, entity dropdown, CSRF field, **Save** posts to **POST /loans/new**; **Cancel** to `/loans`; empty-entities message and link to `/entities/new` when no entities.
+13. **GET /loans/new?invalid=1** — Amber validation banner text unchanged from before refactor.
+14. **POST /loans/new** — Valid submissions insert and redirect to **GET /loans**; invalid submissions redirect to **GET /loans/new?invalid=1** with same rules as before (no change to validation or DB insert shape).
+15. **GET /loans/edit** and **POST /loans/edit** — Still handled inline in `public/index.php` (unchanged).
+
 ## Other routes (unchanged)
 
-11. **GET /**, **GET /loans**, **GET /cash-events** — Still work.
-12. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`** — No syntax errors.
+16. **GET /**, **GET /cash-events** — Still work.
+17. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.

@@ -647,6 +647,7 @@ function checks_monthly_check_already_posted(array $row): bool
 }
 
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controllers' . DIRECTORY_SEPARATOR . 'ChecksController.php';
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controllers' . DIRECTORY_SEPARATOR . 'LoansController.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
@@ -964,93 +965,7 @@ $routes = [
         exit;
     },
     'GET /loans' => static function (): void {
-        $title = 'Loans';
-        $idx = loan_loans_column_name_index();
-        $monthlySel = isset($idx['monthly_interest'])
-            ? 'l.monthly_interest'
-            : 'CAST(NULL AS DECIMAL(12,2)) AS monthly_interest';
-        $icmSel = isset($idx['interest_calc_method'])
-            ? 'l.interest_calc_method'
-            : "'fixed' AS interest_calc_method";
-        $rows = dbAll(
-            'SELECT l.id, l.name, l.funding_source, l.origin_date, l.maturity_date, l.payment_type, l.principal_amount, l.annual_interest_rate, '
-            . $monthlySel . ', ' . $icmSel
-            . ', l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
-            []
-        );
-        header('Content-Type: text/html; charset=utf-8');
-        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
-        echo '<script src="https://cdn.tailwindcss.com"></script>';
-        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
-        echo '<div class="mx-auto max-w-6xl space-y-4">';
-        echo '<div class="flex items-center justify-between gap-4">';
-        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
-        echo '<a class="rounded bg-slate-900 px-3 py-2 text-sm text-white" href="/loans/new">New loan</a>';
-        echo '</div>';
-        echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a>';
-        echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
-        echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
-        echo '<th class="px-3 py-2 font-medium">ID</th><th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Name</th>';
-        echo '<th class="px-3 py-2 font-medium">Funding</th><th class="px-3 py-2 font-medium">Origin</th><th class="px-3 py-2 font-medium">Maturity</th>';
-        echo '<th class="px-3 py-2 font-medium">Principal</th><th class="px-3 py-2 font-medium">Rate %</th><th class="px-3 py-2 font-medium">Payment type</th>';
-        echo '<th class="px-3 py-2 font-medium">Actions</th>';
-        echo '</tr></thead><tbody>';
-        if ($rows === []) {
-            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="10">No loans yet.</td></tr>';
-        } else {
-            foreach ($rows as $row) {
-                $id = (string) ($row['id'] ?? '');
-                $entityName = (string) ($row['entity_name'] ?? '');
-                $loanName = (string) ($row['name'] ?? '');
-                $funding = (string) ($row['funding_source'] ?? '');
-                $origin = (string) ($row['origin_date'] ?? '');
-                $maturity = $row['maturity_date'] !== null && $row['maturity_date'] !== '' ? (string) $row['maturity_date'] : '';
-                $ptype = (string) ($row['payment_type'] ?? '');
-                $principal = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '';
-                $rate = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '';
-                $monthlyIntStr = isset($row['monthly_interest']) && $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
-                $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
-                if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
-                    $calcMethod = 'fixed';
-                }
-                $impliedAnnual = null;
-                if ($calcMethod === 'fixed'
-                    && in_array($ptype, ['interest_only', 'amortizing'], true)
-                    && loan_annual_interest_rate_is_blank_or_zero($rate)
-                    && $monthlyIntStr !== '') {
-                    $impliedAnnual = loan_implied_annual_percent_from_monthly_interest($principal, $monthlyIntStr);
-                }
-                if (in_array($ptype, ['interest_only', 'amortizing'], true)) {
-                    if ($impliedAnnual !== null) {
-                        $estMonthly = checks_normalize_money_2($monthlyIntStr);
-                    } else {
-                        $estMonthly = loan_simple_monthly_interest($principal, $rate);
-                    }
-                } else {
-                    $estMonthly = loan_simple_monthly_interest($principal, $rate);
-                }
-                $principalTitle = in_array($ptype, ['interest_only', 'amortizing'], true)
-                    ? 'Est. monthly interest (full principal, not amortized): ' . $estMonthly
-                    : '';
-                echo '<tr class="border-t border-slate-100">';
-                echo '<td class="px-3 py-2">' . e($id) . '</td>';
-                echo '<td class="px-3 py-2">' . e($entityName) . '</td>';
-                echo '<td class="px-3 py-2">' . e($loanName) . '</td>';
-                echo '<td class="px-3 py-2">' . e($funding) . '</td>';
-                echo '<td class="px-3 py-2">' . e($origin) . '</td>';
-                echo '<td class="px-3 py-2">' . e($maturity) . '</td>';
-                echo '<td class="px-3 py-2"' . ($principalTitle !== '' ? ' title="' . e($principalTitle) . '"' : '') . '>' . e($principal) . '</td>';
-                if ($impliedAnnual !== null) {
-                    echo '<td class="px-3 py-2 italic text-slate-800" title="Implied annual %: monthly interest × 12 ÷ principal × 100 (stored annual rate is blank or zero).">' . e($impliedAnnual) . '</td>';
-                } else {
-                    echo '<td class="px-3 py-2">' . e($rate !== '' ? $rate : '0') . '</td>';
-                }
-                echo '<td class="px-3 py-2">' . e($ptype) . '</td>';
-                echo '<td class="px-3 py-2"><a class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-800 hover:bg-slate-50" href="/loans/edit?id=' . e($id) . '">Edit</a></td>';
-                echo '</tr>';
-            }
-        }
-        echo '</tbody></table></div></div></body></html>';
+        (new LoansController())->index();
     },
     'GET /checks' => static function (): void {
         (new ChecksController())->index();
@@ -1396,68 +1311,7 @@ $routes = [
         exit;
     },
     'GET /loans/new' => static function (): void {
-        $title = 'New loan';
-        $entities = dbAll('SELECT id, name FROM entities ORDER BY name ASC', []);
-        header('Content-Type: text/html; charset=utf-8');
-        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
-        echo '<script src="https://cdn.tailwindcss.com"></script>';
-        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
-        echo '<div class="mx-auto max-w-xl space-y-4">';
-        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
-        echo '<a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>';
-        if (isset($_GET['invalid'])) {
-            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Use a dot or comma as the decimal separator (e.g. 100000.00 or 100000,00), optional US thousands, or a trailing % on the rate. Prepaid: amount and date required. Optional monthly amounts must be non-negative with at most two decimal places.</p>';
-        }
-        if ($entities === []) {
-            echo '<p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>';
-        } else {
-            echo '<form class="space-y-4 rounded border border-slate-200 bg-white p-4 shadow-sm" method="post" action="/loans/new">';
-            echo csrf_field();
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="entity_id">Entity</label>';
-            echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="entity_id" name="entity_id" required>';
-            foreach ($entities as $ent) {
-                $eid = (string) ($ent['id'] ?? '');
-                $ename = (string) ($ent['name'] ?? '');
-                echo '<option value="' . e($eid) . '">' . e($ename) . '</option>';
-            }
-            echo '</select></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="name">Name</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="name" name="name" type="text" required maxlength="255"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="funding_source">Funding source</label>';
-            echo '<select class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="funding_source" name="funding_source" required>';
-            echo '<option value="JPM">JPM</option><option value="NTRS">NTRS</option></select></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="origin_date">Origin date</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="origin_date" name="origin_date" type="date" required></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="maturity_date">Maturity date (optional)</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="maturity_date" name="maturity_date" type="date"></div>';
-            echo '<fieldset class="space-y-2"><legend class="mb-1 text-sm font-medium text-slate-700">Payment type</legend>';
-            echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="payment_type" value="interest_only" required> Interest only</label>';
-            echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="payment_type" value="amortizing"> Amortizing</label>';
-            echo '<label class="block text-sm"><input class="mr-1" type="radio" name="payment_type" value="prepaid"> Prepaid</label></fieldset>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_amount">Principal amount</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_amount" name="principal_amount" type="text" inputmode="decimal" placeholder="0.00"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="annual_interest_rate">Annual interest rate (%)</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="annual_interest_rate" name="annual_interest_rate" type="text" inputmode="decimal" placeholder="e.g. 12.500"></div>';
-            echo '<fieldset class="space-y-3 rounded border border-slate-200 p-3"><legend class="text-sm font-medium text-slate-700">Checks &amp; amortization</legend>';
-            echo '<p class="text-xs text-slate-500">These fields apply on the Checks page after the prepaid-through month (and for interest-only / amortizing loans). <strong>Declining balance</strong> adds monthly principal below to expected payment.</p>';
-            echo '<div><span class="mb-1 block text-sm font-medium text-slate-700">Interest calculation method</span>';
-            echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="interest_calc_method" value="fixed" required checked> Fixed</label>';
-            echo '<label class="block text-sm"><input class="mr-1" type="radio" name="interest_calc_method" value="declining_balance"> Declining balance</label></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="monthly_interest">Monthly interest (optional)</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="monthly_interest" name="monthly_interest" type="text" inputmode="decimal" placeholder="Leave blank to derive from principal and rate on Checks"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_payment_monthly">Monthly principal payment (paydown)</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_payment_monthly" name="principal_payment_monthly" type="text" inputmode="decimal" placeholder="0.00 — typical for amortizing"></div>';
-            echo '</fieldset>';
-            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal required; annual rate required unless <strong>fixed</strong> with <strong>monthly interest</strong> set (then Checks uses that amount; leave monthly interest blank to derive from principal and rate on Checks). Prepaid: prepaid amount and date required; principal may be zero during prepaid, but annual rate, monthly interest, method, and paydown are saved for Checks after prepaid expires. Optional amounts: non-negative, up to two decimal places.</p>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00"></div>';
-            echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
-            echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_date" name="prepaid_interest_date" type="date"></div>';
-            echo '<div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>';
-            echo '<a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/loans">Cancel</a></div>';
-            echo '</form>';
-        }
-        echo '</div></body></html>';
+        (new LoansController())->create();
     },
     'GET /loans/edit' => static function (): void {
         $id = (int) ($_GET['id'] ?? 0);
@@ -1565,127 +1419,7 @@ $routes = [
         echo '</div></body></html>';
     },
     'POST /loans/new' => static function (): void {
-        csrf_verify_or_die();
-
-        $parseDate = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '') {
-                return null;
-            }
-            $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
-
-            return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
-        };
-
-        $parseDecimal = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '') {
-                return null;
-            }
-            if (!preg_match('/^-?\d+(\.\d{1,2})?$/', $s)) {
-                return null;
-            }
-
-            return $s;
-        };
-
-        $entityId = (int) ($_POST['entity_id'] ?? 0);
-        $name = trim((string) ($_POST['name'] ?? ''));
-        $funding = (string) ($_POST['funding_source'] ?? '');
-        $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
-        $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
-        $paymentType = trim((string) ($_POST['payment_type'] ?? ''));
-        $principalRaw = loan_normalize_decimal_input((string) ($_POST['principal_amount'] ?? ''));
-        $rateRaw = loan_normalize_decimal_input((string) ($_POST['annual_interest_rate'] ?? ''), true);
-        $prepaidAmtRaw = loan_normalize_decimal_input((string) ($_POST['prepaid_interest_amount'] ?? ''));
-        $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
-
-        $redirect = static function (): void {
-            header('Location: /loans/new?invalid=1');
-            exit;
-        };
-
-        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
-            $redirect();
-        }
-
-        $origin = $parseDate($originRaw);
-        if ($origin === null) {
-            $redirect();
-        }
-
-        $maturity = $maturityRaw === '' ? null : $parseDate($maturityRaw);
-        if ($maturityRaw !== '' && $maturity === null) {
-            $redirect();
-        }
-
-        $checksFields = loan_parse_checks_fields_from_post();
-        if ($checksFields === false) {
-            $redirect();
-        }
-
-        $principalStr = '0.00';
-        $rateStr = '0.00';
-        $prepaidAmount = null;
-        $prepaidDate = null;
-
-        if ($paymentType === 'prepaid') {
-            $prepaidAmount = $parseDecimal($prepaidAmtRaw);
-            $prepaidDate = $parseDate($prepaidDateRaw);
-            if ($prepaidAmount === null || $prepaidDate === null) {
-                $redirect();
-            }
-            if (extension_loaded('bcmath')) {
-                if (bccomp($prepaidAmount, '0', 2) !== 1) {
-                    $redirect();
-                }
-            } elseif ((float) $prepaidAmount <= 0.0) {
-                $redirect();
-            }
-            $parsed = loan_principal_and_annual_for_prepaid_save($principalRaw, $rateRaw, $checksFields);
-            if ($parsed === false) {
-                $redirect();
-            }
-            $principalStr = $parsed['principalStr'];
-            $rateStr = $parsed['rateStr'];
-        } else {
-            $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
-            if ($parsed === false) {
-                $redirect();
-            }
-            $principalStr = $parsed['principalStr'];
-            $rateStr = $parsed['rateStr'];
-        }
-
-        $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
-        $chk->execute([$entityId]);
-        if ($chk->fetch() === false) {
-            $redirect();
-        }
-
-        $idx = loan_loans_column_name_index();
-        $insertCols = ['entity_id', 'name', 'principal_amount', 'annual_interest_rate'];
-        $insertParams = [$entityId, $name, $principalStr, $rateStr];
-        if (isset($idx['monthly_interest'])) {
-            $insertCols[] = 'monthly_interest';
-            $insertParams[] = $checksFields['monthly_interest'];
-        }
-        if (isset($idx['interest_calc_method'])) {
-            $insertCols[] = 'interest_calc_method';
-            $insertParams[] = $checksFields['interest_calc_method'];
-        }
-        if (isset($idx['principal_payment_monthly'])) {
-            $insertCols[] = 'principal_payment_monthly';
-            $insertParams[] = $checksFields['principal_payment_monthly'];
-        }
-        $insertCols = array_merge($insertCols, ['funding_source', 'origin_date', 'maturity_date', 'payment_type', 'prepaid_interest_amount', 'prepaid_interest_date', 'notes']);
-        $insertParams = array_merge($insertParams, [$funding, $origin, $maturity, $paymentType, $prepaidAmount, $prepaidDate, null]);
-        $ph = implode(', ', array_fill(0, count($insertParams), '?'));
-        $sqlIns = 'INSERT INTO loans (' . implode(', ', $insertCols) . ') VALUES (' . $ph . ')';
-        $stmt = db()->prepare($sqlIns);
-        $stmt->execute($insertParams);
-        header('Location: /loans');
-        exit;
+        (new LoansController())->store();
     },
     'POST /loans/edit' => static function (): void {
         csrf_verify_or_die();
