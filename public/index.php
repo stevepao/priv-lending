@@ -221,15 +221,8 @@ function loan_parse_optional_non_negative_money_2(string $raw)
 /**
  * @return array{monthly_interest: ?string, interest_calc_method: string, principal_payment_monthly: ?string}|false
  */
-function loan_parse_checks_fields_from_post(string $paymentType)
+function loan_parse_checks_fields_from_post()
 {
-    if ($paymentType === 'prepaid') {
-        return [
-            'monthly_interest' => null,
-            'interest_calc_method' => 'fixed',
-            'principal_payment_monthly' => null,
-        ];
-    }
     $parsedMpp = loan_parse_optional_non_negative_money_2((string) ($_POST['principal_payment_monthly'] ?? ''));
     $parsedMInt = loan_parse_optional_non_negative_money_2((string) ($_POST['monthly_interest'] ?? ''));
     if ($parsedMpp === false || $parsedMInt === false) {
@@ -311,6 +304,91 @@ function loan_principal_and_annual_for_io_amortizing_save(string $principalRaw, 
     }
 
     return ['principalStr' => $p, 'rateStr' => loan_format_annual_rate_db_string($r)];
+}
+
+/**
+ * Principal and annual rate for prepaid saves: principal may be zero during the prepaid window;
+ * rate and checklist fields are still stored and used on Checks after prepaid_interest_date.
+ *
+ * @param array{monthly_interest: ?string, interest_calc_method: string, principal_payment_monthly: ?string} $checksFields
+ *
+ * @return array{principalStr: string, rateStr: string}|false
+ */
+function loan_principal_and_annual_for_prepaid_save(string $principalRaw, string $rateRaw, array $checksFields): array|false
+{
+    $p = trim(loan_normalize_decimal_input($principalRaw));
+    if ($p === '') {
+        $principalStr = '0.00';
+    } elseif (!preg_match('/^\d{1,10}(\.\d{1,2})?$/', $p)) {
+        return false;
+    } else {
+        if (extension_loaded('bcmath')) {
+            if (bccomp($p, '0', 2) < 0) {
+                return false;
+            }
+        } elseif ((float) $p < 0.0) {
+            return false;
+        }
+        $principalStr = checks_normalize_money_2($p);
+    }
+
+    $fixedOverride = ($checksFields['interest_calc_method'] ?? '') === 'fixed'
+        && $checksFields['monthly_interest'] !== null;
+
+    $principalPositive = extension_loaded('bcmath')
+        ? bccomp($principalStr, '0', 2) === 1
+        : (float) $principalStr > 0.0;
+
+    if ($fixedOverride) {
+        $r = trim(loan_normalize_decimal_input($rateRaw, true));
+        if ($r === '') {
+            return ['principalStr' => $principalStr, 'rateStr' => '0.000'];
+        }
+        if (!preg_match('/^\d{1,3}(\.\d{1,3})?$/', $r)) {
+            return false;
+        }
+        if (extension_loaded('bcmath')) {
+            if (bccomp($r, '0', 3) < 0) {
+                return false;
+            }
+        } elseif ((float) $r < 0.0) {
+            return false;
+        }
+
+        return ['principalStr' => $principalStr, 'rateStr' => loan_format_annual_rate_db_string($r)];
+    }
+
+    $r = trim(loan_normalize_decimal_input($rateRaw, true));
+    if (!$principalPositive) {
+        if ($r === '') {
+            return ['principalStr' => $principalStr, 'rateStr' => '0.000'];
+        }
+        if (!preg_match('/^\d{1,3}(\.\d{1,3})?$/', $r)) {
+            return false;
+        }
+        if (extension_loaded('bcmath')) {
+            if (bccomp($r, '0', 3) < 0) {
+                return false;
+            }
+        } elseif ((float) $r < 0.0) {
+            return false;
+        }
+
+        return ['principalStr' => $principalStr, 'rateStr' => loan_format_annual_rate_db_string($r)];
+    }
+
+    if ($r === '' || !preg_match('/^\d{1,3}(\.\d{1,3})?$/', $r)) {
+        return false;
+    }
+    if (extension_loaded('bcmath')) {
+        if (bccomp($r, '0', 3) !== 1) {
+            return false;
+        }
+    } elseif ((float) $r <= 0.0) {
+        return false;
+    }
+
+    return ['principalStr' => $principalStr, 'rateStr' => loan_format_annual_rate_db_string($r)];
 }
 
 /**
@@ -993,7 +1071,7 @@ $routes = [
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="annual_interest_rate">Annual interest rate (%)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="annual_interest_rate" name="annual_interest_rate" type="text" inputmode="decimal" placeholder="e.g. 12.500"></div>';
             echo '<fieldset class="space-y-3 rounded border border-slate-200 p-3"><legend class="text-sm font-medium text-slate-700">Checks &amp; amortization</legend>';
-            echo '<p class="text-xs text-slate-500">For <strong>interest-only</strong> or <strong>amortizing</strong> loans (ignored if you choose prepaid). Used on the Checks page: <strong>declining balance</strong> adds monthly principal below to expected payment.</p>';
+            echo '<p class="text-xs text-slate-500">These fields apply on the Checks page after the prepaid-through month (and for interest-only / amortizing loans). <strong>Declining balance</strong> adds monthly principal below to expected payment.</p>';
             echo '<div><span class="mb-1 block text-sm font-medium text-slate-700">Interest calculation method</span>';
             echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="interest_calc_method" value="fixed" required checked> Fixed</label>';
             echo '<label class="block text-sm"><input class="mr-1" type="radio" name="interest_calc_method" value="declining_balance"> Declining balance</label></div>';
@@ -1002,7 +1080,7 @@ $routes = [
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_payment_monthly">Monthly principal payment (paydown)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_payment_monthly" name="principal_payment_monthly" type="text" inputmode="decimal" placeholder="0.00 — typical for amortizing"></div>';
             echo '</fieldset>';
-            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal required; annual rate required unless <strong>fixed</strong> with <strong>monthly interest</strong> set (then Checks uses that amount; leave monthly interest blank to derive from principal and rate on Checks). Prepaid: prepaid amount and date are required (principal/rate may be zero). Optional amounts: non-negative, up to two decimal places.</p>';
+            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal required; annual rate required unless <strong>fixed</strong> with <strong>monthly interest</strong> set (then Checks uses that amount; leave monthly interest blank to derive from principal and rate on Checks). Prepaid: prepaid amount and date required; principal may be zero during prepaid, but annual rate, monthly interest, method, and paydown are saved for Checks after prepaid expires. Optional amounts: non-negative, up to two decimal places.</p>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00"></div>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
@@ -1098,7 +1176,7 @@ $routes = [
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="annual_interest_rate">Annual interest rate (%)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="annual_interest_rate" name="annual_interest_rate" type="text" inputmode="decimal" placeholder="e.g. 12.500" value="' . e($rateVal) . '"></div>';
             echo '<fieldset class="space-y-3 rounded border border-slate-200 p-3"><legend class="text-sm font-medium text-slate-700">Checks &amp; amortization</legend>';
-            echo '<p class="text-xs text-slate-500">For <strong>interest-only</strong> or <strong>amortizing</strong> loans (saved values are cleared if you switch to prepaid). Declining balance uses monthly principal below on the Checks page.</p>';
+            echo '<p class="text-xs text-slate-500">For <strong>interest-only</strong>, <strong>amortizing</strong>, and <strong>prepaid</strong> (post-prepaid Checks). Declining balance uses monthly principal below on the Checks page.</p>';
             echo '<div><span class="mb-1 block text-sm font-medium text-slate-700">Interest calculation method</span>';
             echo '<label class="mr-4 block text-sm"><input class="mr-1" type="radio" name="interest_calc_method" value="fixed" required' . $chkIcFixed . '> Fixed</label>';
             echo '<label class="block text-sm"><input class="mr-1" type="radio" name="interest_calc_method" value="declining_balance"' . $chkIcDecl . '> Declining balance</label></div>';
@@ -1107,7 +1185,7 @@ $routes = [
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_payment_monthly">Monthly principal payment (paydown)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_payment_monthly" name="principal_payment_monthly" type="text" inputmode="decimal" placeholder="0.00 — typical for amortizing" value="' . e($mppVal) . '"></div>';
             echo '</fieldset>';
-            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal required; annual rate required unless <strong>fixed</strong> with <strong>monthly interest</strong> set. Prepaid: prepaid amount and date are required. Optional amounts: non-negative, up to two decimal places.</p>';
+            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal required; annual rate required unless <strong>fixed</strong> with <strong>monthly interest</strong> set. Prepaid: prepaid amount and date required; principal may be zero during prepaid, but rate, monthly interest, method, and paydown are saved for Checks after prepaid expires. Optional amounts: non-negative, up to two decimal places.</p>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00" value="' . e($pamtVal) . '"></div>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
@@ -1173,7 +1251,7 @@ $routes = [
             $redirect();
         }
 
-        $checksFields = loan_parse_checks_fields_from_post($paymentType);
+        $checksFields = loan_parse_checks_fields_from_post();
         if ($checksFields === false) {
             $redirect();
         }
@@ -1196,6 +1274,12 @@ $routes = [
             } elseif ((float) $prepaidAmount <= 0.0) {
                 $redirect();
             }
+            $parsed = loan_principal_and_annual_for_prepaid_save($principalRaw, $rateRaw, $checksFields);
+            if ($parsed === false) {
+                $redirect();
+            }
+            $principalStr = $parsed['principalStr'];
+            $rateStr = $parsed['rateStr'];
         } else {
             $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
             if ($parsed === false) {
@@ -1296,7 +1380,7 @@ $routes = [
             $redirect($loanId);
         }
 
-        $checksFields = loan_parse_checks_fields_from_post($paymentType);
+        $checksFields = loan_parse_checks_fields_from_post();
         if ($checksFields === false) {
             $redirect($loanId);
         }
@@ -1319,6 +1403,12 @@ $routes = [
             } elseif ((float) $prepaidAmount <= 0.0) {
                 $redirect($loanId);
             }
+            $parsed = loan_principal_and_annual_for_prepaid_save($principalRaw, $rateRaw, $checksFields);
+            if ($parsed === false) {
+                $redirect($loanId);
+            }
+            $principalStr = $parsed['principalStr'];
+            $rateStr = $parsed['rateStr'];
         } else {
             $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
             if ($parsed === false) {
