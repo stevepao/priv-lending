@@ -29,12 +29,12 @@ $linkClass = static function (bool $on): string {
 </div>
 <nav class="flex flex-wrap items-center gap-1" aria-label="Main navigation">
 <a class="<?php echo e($linkClass($active($path, '/'))); ?>" href="/">Dashboard</a>
-<a class="<?php echo e($linkClass($active($path, '/borrowers'))); ?>" href="/borrowers">Borrowers</a>
-<a class="<?php echo e($linkClass($active($path, '/entities'))); ?>" href="/entities">Entities</a>
-<a class="<?php echo e($linkClass($active($path, '/loans'))); ?>" href="/loans">Loans</a>
 <a class="<?php echo e($linkClass($active($path, '/checks'))); ?>" href="/checks">Checks</a>
-<a class="<?php echo e($linkClass($active($path, '/cash-events'))); ?>" href="/cash-events">Cash events</a>
 <a class="<?php echo e($linkClass($active($path, '/bank'))); ?>" href="/bank">Bank</a>
+<a class="<?php echo e($linkClass($active($path, '/cash-events'))); ?>" href="/cash-events">Cash Events</a>
+<a class="<?php echo e($linkClass($active($path, '/loans'))); ?>" href="/loans">Loans</a>
+<a class="<?php echo e($linkClass($active($path, '/entities'))); ?>" href="/entities">Entities</a>
+<a class="<?php echo e($linkClass($active($path, '/borrowers'))); ?>" href="/borrowers">Borrowers</a>
 <a class="<?php echo e($linkClass($active($path, '/report'))); ?>" href="/report">Report</a>
 <a class="<?php echo e($linkClass($active($path, '/reconcile'))); ?>" href="/reconcile">Reconcile</a>
 </nav>
