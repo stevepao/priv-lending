@@ -19,6 +19,23 @@ fwrite(STDOUT, "\n");
 
 $pdo = db();
 
+foreach (['SET SESSION innodb_lock_wait_timeout = 60', 'SET SESSION lock_wait_timeout = 60'] as $sessionSql) {
+    try {
+        $pdo->exec($sessionSql);
+    } catch (Throwable $e) {
+        // Older servers may not support every variable; ignore.
+    }
+}
+
+$isDuplicateColumn = static function (PDOException $e): bool {
+    $info = $e->errorInfo;
+    if (is_array($info) && isset($info[1]) && (int) $info[1] === 1060) {
+        return true;
+    }
+
+    return str_contains($e->getMessage(), 'Duplicate column name');
+};
+
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS schema_migrations (
         id INT NOT NULL AUTO_INCREMENT,
@@ -68,12 +85,37 @@ foreach ($pending as $path) {
         throw new RuntimeException('Failed to read migration file: ' . $path);
     }
 
+    fwrite(STDOUT, 'File: ' . $filename . "\n");
+    fflush(STDOUT);
+
     $pdo->beginTransaction();
     try {
         $sql = trim($raw);
         if ($sql !== '') {
-            foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
-                $pdo->exec($statement);
+            $statements = array_values(array_filter(array_map('trim', explode(';', $sql))));
+            $n = count($statements);
+            $si = 0;
+            foreach ($statements as $statement) {
+                ++$si;
+                $oneLine = preg_replace('/\s+/', ' ', $statement) ?? $statement;
+                if (strlen($oneLine) > 160) {
+                    $oneLine = substr($oneLine, 0, 157) . '...';
+                }
+                fwrite(STDOUT, "  [{$si}/{$n}] {$oneLine}\n");
+                fflush(STDOUT);
+                try {
+                    $pdo->exec($statement);
+                } catch (PDOException $e) {
+                    if ($isDuplicateColumn($e)) {
+                        fwrite(STDOUT, "  ... skipped (column already exists)\n");
+                        fflush(STDOUT);
+
+                        continue;
+                    }
+                    throw $e;
+                }
+                fwrite(STDOUT, "  ... OK\n");
+                fflush(STDOUT);
             }
         }
 
@@ -82,8 +124,11 @@ foreach ($pending as $path) {
 
         $pdo->commit();
         fwrite(STDOUT, 'Applied: ' . $filename . "\n");
+        fflush(STDOUT);
     } catch (Throwable $e) {
         $pdo->rollBack();
+        fwrite(STDERR, 'Migration failed: ' . $filename . "\n" . $e->getMessage() . "\n");
+        fflush(STDERR);
         throw $e;
     }
 }
