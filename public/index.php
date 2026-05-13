@@ -359,19 +359,58 @@ function loan_sql_select_checks_column_expressions(string $aliasPrefix): string
 }
 
 /**
+ * True when calendar month $selectedYm (Y-m) is still within the prepaid-interest window:
+ * coverage runs through the month that contains prepaid_interest_date (inclusive).
+ */
+function checks_selected_month_within_prepaid_window(?string $prepaidInterestDate, string $selectedYm): bool
+{
+    if ($prepaidInterestDate === null) {
+        return false;
+    }
+    $d = trim($prepaidInterestDate);
+    if ($d === '') {
+        return false;
+    }
+    if (strlen($d) >= 7 && preg_match('/^\d{4}-\d{2}/', $d) === 1) {
+        $endYm = substr($d, 0, 7);
+    } else {
+        $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $d);
+        if (!$parsed instanceof DateTimeImmutable) {
+            return false;
+        }
+        $endYm = $parsed->format('Y-m');
+    }
+
+    return strcmp($selectedYm, $endYm) <= 0;
+}
+
+/**
  * Loans for GET /checks: only reference optional columns when they exist so production DBs
  * that predate interest_calc_method (or other checklist fields) do not error.
  *
+ * Rows are limited to loans active for the calendar month $selectedYm (Y-m): origin month must
+ * be on or before that month, maturity (if set) must not end before that month, and status must
+ * be active when the status column exists.
+ *
  * @return list<array<string, mixed>>
  */
-function checks_fetch_loan_rows_for_checks_page(): array
+function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
 {
+    $names = loan_loans_column_name_index();
+    $statusClause = isset($names['status'])
+        ? " AND (l.status IS NULL OR l.status = 'active')"
+        : '';
+
     $sql = 'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, '
         . loan_sql_select_checks_column_expressions('l.')
-        . ', l.payment_type, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
-        . 'ORDER BY e.name ASC, l.name ASC';
+        . ', l.payment_type, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
+        . 'WHERE l.origin_date IS NOT NULL '
+        . "AND DATE_FORMAT(l.origin_date, '%Y-%m') <= ? "
+        . "AND (l.maturity_date IS NULL OR DATE_FORMAT(l.maturity_date, '%Y-%m') >= ?)"
+        . $statusClause
+        . ' ORDER BY e.name ASC, l.name ASC';
 
-    return dbAll($sql, []);
+    return dbAll($sql, [$selectedYm, $selectedYm]);
 }
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -789,13 +828,19 @@ $routes = [
             }
         }
 
-        $rows = checks_fetch_loan_rows_for_checks_page();
+        $rows = checks_fetch_loan_rows_for_checks_page($selectedYm);
         $monthlyRows = [];
         $prepaidRows = [];
         foreach ($rows as $row) {
             $ptype = (string) ($row['payment_type'] ?? '');
             if ($ptype === 'prepaid') {
-                $prepaidRows[] = $row;
+                $pDateRaw = $row['prepaid_interest_date'] ?? null;
+                $pDateStr = $pDateRaw !== null && $pDateRaw !== '' ? (string) $pDateRaw : null;
+                if (checks_selected_month_within_prepaid_window($pDateStr, $selectedYm)) {
+                    $prepaidRows[] = $row;
+                } else {
+                    $monthlyRows[] = $row;
+                }
 
                 continue;
             }
@@ -816,7 +861,7 @@ $routes = [
         echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="month" name="month" type="month" value="' . e($selectedYm) . '"></div>';
         echo '<button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Show</button>';
         echo '</form></div>';
-        echo '<p class="text-sm text-slate-600">Read-only expected payment for <strong>interest-only</strong> and <strong>amortizing</strong> loans. For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Paydown count for the selected month excludes the loan’s origin month (first modeled paydown is the month after the origin month). Prepaid loans are listed separately (unchanged). No data is saved from this page.</p>';
+        echo '<p class="text-sm text-slate-600">Read-only expected payment for <strong>interest-only</strong> and <strong>amortizing</strong> loans, and for <strong>prepaid</strong> loans after the prepaid-through month (they then appear in this table instead of the prepaid section below). For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Paydown count for the selected month excludes the loan’s origin month (first modeled paydown is the month after the origin month). The prepaid section lists prepaid loans only through the calendar month of <code class="text-xs">prepaid_interest_date</code>. No data is saved from this page.</p>';
         echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a>';
 
         echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
