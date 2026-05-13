@@ -617,8 +617,8 @@ $routes = [
                         }
                         $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($exp) . '</div>';
                     } else {
-                        $notes = 'Set monthly_interest for fixed loans.';
-                        $checkAttrs .= ' disabled';
+                        $exp = loan_simple_monthly_interest($principalStr, $annualStr);
+                        $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($exp) . '</div>';
                     }
                 } else {
                     $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $selectedYm);
