@@ -42,6 +42,7 @@ require_once $c . 'DashboardController.php';
 require_once $c . 'EntitiesController.php';
 require_once $c . 'LoansController.php';
 require_once $c . 'ReportController.php';
+require_once $c . 'ReconcileController.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
@@ -127,6 +128,9 @@ $routes = [
     },
     'GET /report' => static function (): void {
         (new ReportController())->index();
+    },
+    'GET /reconcile' => static function (): void {
+        (new ReconcileController())->index();
     },
     'GET /loans/new' => static function (): void {
         (new LoansController())->create();
