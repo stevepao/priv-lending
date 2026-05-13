@@ -33,7 +33,14 @@ Run logged in, with migrations applied if you use posting / Posted status.
 14. **POST /loans/new** — Valid submissions insert and redirect to **GET /loans**; invalid submissions redirect to **GET /loans/new?invalid=1** with same rules as before (no change to validation or DB insert shape).
 15. **GET /loans/edit** and **POST /loans/edit** — Still handled inline in `public/index.php` (unchanged).
 
-## Other routes (unchanged)
+## Cash events (`public/index.php`)
 
-16. **GET /**, **GET /cash-events** — Still work.
-17. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
+16. **GET /cash-events** — Table includes **Actions** with **Edit** per row; empty state colspan matches column count.
+17. **GET /cash-events/edit?id=…** — Loads the event; form matches **New cash event** fields with current values; optional banner when `scheduled_check_ym` is set (migration applied); invalid query shows same amber message as new.
+18. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym)`.
+19. **GET /cash-events/new** and **POST /cash-events/new** — Unchanged.
+
+## Other routes
+
+20. **GET /** — Still works.
+21. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
