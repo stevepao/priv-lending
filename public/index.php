@@ -1757,26 +1757,24 @@ $routes = [
             $stmt = $pdo->prepare(
                 'SELECT COALESCE(SUM(CASE WHEN category = ? THEN amount ELSE 0 END), 0) AS interest_in_sum, '
                 . 'COALESCE(SUM(CASE WHEN category = ? THEN amount ELSE 0 END), 0) AS loc_interest_sum, '
-                . 'COALESCE(SUM(CASE WHEN category = ? THEN amount ELSE 0 END), 0) AS principal_out_sum '
+                . 'COALESCE(SUM(CASE WHEN category IN (?, ?) THEN amount ELSE 0 END), 0) AS principal_net_sum '
                 . 'FROM cash_events WHERE event_date >= ? AND event_date <= ?'
             );
-            $stmt->execute(['interest', 'loc_interest', 'principal_out', $start, $end]);
+            $stmt->execute(['interest', 'loc_interest', 'principal_in', 'principal_out', $start, $end]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             $interestInRaw = is_array($row) ? (string) ($row['interest_in_sum'] ?? '0') : '0';
             $locSumRaw = is_array($row) ? (string) ($row['loc_interest_sum'] ?? '0') : '0';
-            $principalOutSumRaw = is_array($row) ? (string) ($row['principal_out_sum'] ?? '0') : '0';
+            $principalNetSumRaw = is_array($row) ? (string) ($row['principal_net_sum'] ?? '0') : '0';
 
             $interestInDisp = checks_normalize_money_2($interestInRaw);
             $locSumNorm = checks_normalize_money_2($locSumRaw);
-            $principalOutSumNorm = checks_normalize_money_2($principalOutSumRaw);
+            $principalPaidDisp = checks_normalize_money_2($principalNetSumRaw);
 
             if (extension_loaded('bcmath')) {
                 $locInterestOutDisp = bcmul($locSumNorm, '-1', 2);
-                $principalPaidDisp = bcmul($principalOutSumNorm, '-1', 2);
                 $netIncomeDisp = bcsub($interestInDisp, $locInterestOutDisp, 2);
             } else {
                 $locInterestOutDisp = number_format(-(float) $locSumNorm, 2, '.', '');
-                $principalPaidDisp = number_format(-(float) $principalOutSumNorm, 2, '.', '');
                 $netIncomeDisp = number_format((float) $interestInDisp - (float) $locInterestOutDisp, 2, '.', '');
             }
         }
@@ -1809,7 +1807,7 @@ $routes = [
         echo '<dl class="grid grid-cols-1 gap-2 text-sm">';
         echo '<div class="flex justify-between gap-4 py-2"><dt class="text-slate-600">Principal Paid</dt><dd class="font-mono font-medium text-slate-900">' . e($principalPaidDisp) . '</dd></div>';
         echo '</dl>';
-        echo '<p class="text-xs text-slate-500">Interest In: sum of <code class="text-xs">cash_events.amount</code> where <code class="text-xs">category = interest</code> and <code class="text-xs">event_date</code> is in range (inclusive). LOC Interest Out and Principal Paid use <code class="text-xs">-SUM(amount)</code> for <code class="text-xs">loc_interest</code> and <code class="text-xs">principal_out</code> respectively. Net Income = Interest In − LOC Interest Out.</p>';
+        echo '<p class="text-xs text-slate-500">Interest In: sum of <code class="text-xs">cash_events.amount</code> where <code class="text-xs">category = interest</code> and <code class="text-xs">event_date</code> is in range (inclusive). LOC Interest Out uses <code class="text-xs">-SUM(amount)</code> for <code class="text-xs">loc_interest</code>. Principal Paid is <code class="text-xs">SUM(amount)</code> for <code class="text-xs">principal_in</code> plus <code class="text-xs">principal_out</code> (repayments positive, funding and bank principal draws negative). Net Income = Interest In − LOC Interest Out.</p>';
         echo '</div></div></body></html>';
     },
     'GET /loans/new' => static function (): void {
