@@ -1,13 +1,10 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
-<title><?php echo e($title); ?></title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">
+<?php require __DIR__ . '/partials/layout_head.php'; ?>
 <div class="mx-auto max-w-6xl space-y-4">
 <div class="flex flex-wrap items-center justify-between gap-4">
 <h1 class="text-2xl font-semibold"><?php echo e($title); ?></h1>
 <a class="rounded bg-slate-900 px-3 py-2 text-sm text-white" href="/cash-events/new">New cash event</a>
 </div>
 <p class="text-sm text-slate-600">Ledger of cash movements. Events from <strong>Checks</strong> include the scheduled month in <code class="text-xs">scheduled_check_ym</code> when set.</p>
-<p class="text-sm"><a class="text-slate-600 underline" href="/">Dashboard</a> · <a class="text-slate-600 underline" href="/checks">Checks</a> · <a class="text-slate-600 underline" href="/loans">Loans</a></p>
 <div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
 <table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>
 <th class="px-3 py-2 font-medium">Date</th><th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th>
@@ -47,4 +44,5 @@
 </tr>
 <?php endforeach; ?>
 <?php endif; ?>
-</tbody></table></div></div></body></html>
+</tbody></table></div></div>
+<?php require __DIR__ . '/partials/layout_foot.php'; ?>

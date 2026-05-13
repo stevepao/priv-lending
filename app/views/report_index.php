@@ -1,9 +1,6 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
-<title><?php echo e($title); ?></title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">
+<?php require __DIR__ . '/partials/layout_head.php'; ?>
 <div class="mx-auto max-w-xl space-y-6">
 <h1 class="text-2xl font-semibold"><?php echo e($title); ?></h1>
-<a class="text-sm text-slate-600 underline" href="/">Dashboard</a>
 <form class="flex flex-wrap items-end gap-4 rounded border border-slate-200 bg-white p-4 shadow-sm" method="get" action="/report">
 <div><label class="mb-1 block text-xs font-medium text-slate-600" for="start">Start date</label>
 <input class="rounded border border-slate-300 px-3 py-2 text-sm" id="start" name="start" type="date" value="<?php echo e($start); ?>"></div>
@@ -26,4 +23,5 @@
 <div class="flex justify-between gap-4 py-2"><dt class="text-slate-600">Principal Paid</dt><dd class="font-mono font-medium text-slate-900"><?php echo e($principalPaidDisp); ?></dd></div>
 </dl>
 <p class="text-xs text-slate-500">Interest In: sum of <code class="text-xs">cash_events.amount</code> where <code class="text-xs">category = interest</code> and <code class="text-xs">event_date</code> is in range (inclusive). LOC Interest Out uses <code class="text-xs">-SUM(amount)</code> for <code class="text-xs">loc_interest</code>. Principal Paid is <code class="text-xs">SUM(amount)</code> for <code class="text-xs">principal_in</code> plus <code class="text-xs">principal_out</code> (repayments positive, funding and bank principal draws negative). Net Income = Interest In − LOC Interest Out.</p>
-</div></div></body></html>
+</div></div>
+<?php require __DIR__ . '/partials/layout_foot.php'; ?>

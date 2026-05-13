@@ -1,6 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
-<title><?php echo e($title); ?></title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">
+<?php require __DIR__ . '/partials/layout_head.php'; ?>
 <div class="mx-auto max-w-xl space-y-4">
 <h1 class="text-2xl font-semibold"><?php echo e($title); ?></h1>
 <a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>
@@ -67,4 +65,5 @@
 <a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/loans">Cancel</a></div>
 </form>
 <?php endif; ?>
-</div></body></html>
+</div>
+<?php require __DIR__ . '/partials/layout_foot.php'; ?>

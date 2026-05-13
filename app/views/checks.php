@@ -1,6 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
-<title><?php echo e($title); ?></title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">
+<?php require __DIR__ . '/partials/layout_head.php'; ?>
 <div class="mx-auto max-w-6xl space-y-6">
 <div class="flex flex-wrap items-end justify-between gap-4">
 <h1 class="text-2xl font-semibold"><?php echo e($title); ?></h1>
@@ -16,7 +14,6 @@
 <?php if ($showChecksCategoryUniqueMigrationBanner): ?>
 <p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Posting declining-balance checks as separate interest and principal cash events requires migration <code class="text-xs">0007_cash_events_scheduled_check_category_unique.sql</code>. Run <code class="text-xs">php bin/migrate.php</code>.</p>
 <?php endif; ?>
-<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a> · <a class="text-sm text-slate-600 underline" href="/cash-events">Cash events</a>
 <?php if ($postedSuccess): ?>
 <p class="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">Cash events were posted for the selected checkboxes.</p>
 <?php endif; ?>
@@ -81,4 +78,5 @@
 <p class="text-xs text-slate-500"><strong>Monthly table:</strong> posts cash event(s) per checked loan with <code class="text-xs">scheduled_check_ym</code> set to the month shown (declining balance: interest plus <code class="text-xs">principal_in</code> when the database unique index supports it). Status becomes <strong>Posted</strong>. <strong>Prepaid table:</strong> one <strong>interest</strong> event for the lump <code class="text-xs">prepaid_interest_amount</code> (<code class="text-xs">scheduled_check_ym</code> left blank); use the event date you need (often close or funding date).</p>
 </form>
 
-</div></body></html>
+</div>
+<?php require __DIR__ . '/partials/layout_foot.php'; ?>
