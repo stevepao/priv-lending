@@ -54,6 +54,50 @@ function loan_simple_monthly_interest(string $principalAmount, string $annualRat
     return number_format($p * ($r / 100.0) / 12.0, 2, '.', '');
 }
 
+/** True when stored annual rate is absent or effectively zero. */
+function loan_annual_interest_rate_is_blank_or_zero(string $annualRatePercent): bool
+{
+    $s = trim($annualRatePercent);
+    if ($s === '') {
+        return true;
+    }
+    if (extension_loaded('bcmath')) {
+        return bccomp($s, '0', 3) <= 0;
+    }
+
+    return (float) $s <= 0.0;
+}
+
+/**
+ * Implied annual interest percent from fixed monthly interest on full principal:
+ * (monthly_interest / principal) * 12 * 100. Inverse of loan_simple_monthly_interest for positive inputs.
+ *
+ * @return string|null null when inputs are missing or not positive
+ */
+function loan_implied_annual_percent_from_monthly_interest(string $principalAmount, string $monthlyInterestAmount): ?string
+{
+    $p = trim($principalAmount);
+    $m = trim($monthlyInterestAmount);
+    if ($p === '' || $m === '') {
+        return null;
+    }
+    if (extension_loaded('bcmath')) {
+        if (bccomp($p, '0', 2) !== 1 || bccomp($m, '0', 2) !== 1) {
+            return null;
+        }
+        $raw = bcdiv(bcmul(bcmul($m, '12', 8), '100', 8), $p, 8);
+
+        return number_format((float) $raw, 3, '.', '');
+    }
+    $pF = (float) $p;
+    $mF = (float) $m;
+    if ($pF <= 0.0 || $mF <= 0.0) {
+        return null;
+    }
+
+    return number_format($mF * 12 * 100 / $pF, 3, '.', '');
+}
+
 /** Normalize user-entered decimals: trim, strip leading $, US thousands with commas, else comma as decimal, strip trailing % for rates. */
 function loan_normalize_decimal_input(string $s, bool $stripPercentSuffix = false): string
 {
@@ -647,8 +691,17 @@ $routes = [
     },
     'GET /loans' => static function (): void {
         $title = 'Loans';
+        $idx = loan_loans_column_name_index();
+        $monthlySel = isset($idx['monthly_interest'])
+            ? 'l.monthly_interest'
+            : 'CAST(NULL AS DECIMAL(12,2)) AS monthly_interest';
+        $icmSel = isset($idx['interest_calc_method'])
+            ? 'l.interest_calc_method'
+            : "'fixed' AS interest_calc_method";
         $rows = dbAll(
-            'SELECT l.id, l.name, l.funding_source, l.origin_date, l.maturity_date, l.payment_type, l.principal_amount, l.annual_interest_rate, l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
+            'SELECT l.id, l.name, l.funding_source, l.origin_date, l.maturity_date, l.payment_type, l.principal_amount, l.annual_interest_rate, '
+            . $monthlySel . ', ' . $icmSel
+            . ', l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
             []
         );
         header('Content-Type: text/html; charset=utf-8');
@@ -681,7 +734,27 @@ $routes = [
                 $ptype = (string) ($row['payment_type'] ?? '');
                 $principal = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '';
                 $rate = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '';
-                $estMonthly = loan_simple_monthly_interest($principal, $rate);
+                $monthlyIntStr = isset($row['monthly_interest']) && $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
+                $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
+                if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
+                    $calcMethod = 'fixed';
+                }
+                $impliedAnnual = null;
+                if ($calcMethod === 'fixed'
+                    && in_array($ptype, ['interest_only', 'amortizing'], true)
+                    && loan_annual_interest_rate_is_blank_or_zero($rate)
+                    && $monthlyIntStr !== '') {
+                    $impliedAnnual = loan_implied_annual_percent_from_monthly_interest($principal, $monthlyIntStr);
+                }
+                if (in_array($ptype, ['interest_only', 'amortizing'], true)) {
+                    if ($impliedAnnual !== null) {
+                        $estMonthly = checks_normalize_money_2($monthlyIntStr);
+                    } else {
+                        $estMonthly = loan_simple_monthly_interest($principal, $rate);
+                    }
+                } else {
+                    $estMonthly = loan_simple_monthly_interest($principal, $rate);
+                }
                 $principalTitle = in_array($ptype, ['interest_only', 'amortizing'], true)
                     ? 'Est. monthly interest (full principal, not amortized): ' . $estMonthly
                     : '';
@@ -693,7 +766,11 @@ $routes = [
                 echo '<td class="px-3 py-2">' . e($origin) . '</td>';
                 echo '<td class="px-3 py-2">' . e($maturity) . '</td>';
                 echo '<td class="px-3 py-2"' . ($principalTitle !== '' ? ' title="' . e($principalTitle) . '"' : '') . '>' . e($principal) . '</td>';
-                echo '<td class="px-3 py-2">' . e($rate) . '</td>';
+                if ($impliedAnnual !== null) {
+                    echo '<td class="px-3 py-2 italic text-slate-800" title="Implied annual %: monthly interest × 12 ÷ principal × 100 (stored annual rate is blank or zero).">' . e($impliedAnnual) . '</td>';
+                } else {
+                    echo '<td class="px-3 py-2">' . e($rate !== '' ? $rate : '0') . '</td>';
+                }
                 echo '<td class="px-3 py-2">' . e($ptype) . '</td>';
                 echo '<td class="px-3 py-2"><a class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-800 hover:bg-slate-50" href="/loans/edit?id=' . e($id) . '">Edit</a></td>';
                 echo '</tr>';
