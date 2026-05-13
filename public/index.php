@@ -71,6 +71,65 @@ function loan_normalize_decimal_input(string $s, bool $stripPercentSuffix = fals
     return $s;
 }
 
+/** Full calendar months between origin month and selected month (day-of-month ignored). Used as count of principal paydowns applied before the start of the selected month (beginning balance for that month's interest). */
+function loan_months_elapsed_to_calendar_month(string $originYmd, string $selectedYm): int
+{
+    $o = DateTimeImmutable::createFromFormat('Y-m-d', $originYmd);
+    if (!$o instanceof DateTimeImmutable || $o->format('Y-m-d') !== $originYmd) {
+        return 0;
+    }
+    $s = DateTimeImmutable::createFromFormat('Y-m', $selectedYm);
+    if (!$s instanceof DateTimeImmutable || $s->format('Y-m') !== $selectedYm) {
+        return 0;
+    }
+    $oMonth = $o->modify('first day of this month');
+    $sMonth = $s->modify('first day of this month');
+    if ($sMonth < $oMonth) {
+        return 0;
+    }
+    $y1 = (int) $oMonth->format('Y');
+    $m1 = (int) $oMonth->format('n');
+    $y2 = (int) $sMonth->format('Y');
+    $m2 = (int) $sMonth->format('n');
+
+    return max(0, ($y2 - $y1) * 12 + ($m2 - $m1));
+}
+
+/** Remaining principal after linear paydown; clamped to >= 0. */
+function loan_remaining_principal_after_paydowns(string $principalAmount, string $monthlyPrincipalPayment, int $monthsElapsed): string
+{
+    if ($monthsElapsed < 0) {
+        $monthsElapsed = 0;
+    }
+    $mpp = trim($monthlyPrincipalPayment) === '' ? '0.00' : $monthlyPrincipalPayment;
+    if (extension_loaded('bcmath')) {
+        $paid = bcmul($mpp, (string) $monthsElapsed, 2);
+        $rem = bcsub($principalAmount, $paid, 2);
+        if (bccomp($rem, '0', 2) <= 0) {
+            return '0.00';
+        }
+
+        return $rem;
+    }
+    $rem = (float) $principalAmount - (float) $mpp * $monthsElapsed;
+
+    return number_format(max(0.0, $rem), 2, '.', '');
+}
+
+/**
+ * One month of interest on declining balance using beginning-of-month principal.
+ * annual_interest_rate is stored as percent per year (e.g. 12 = 12%). Equivalent to
+ * remaining_principal * ((annual_percent / 100) / 12). Rounded half-up to 2 decimals.
+ */
+function checks_declining_monthly_interest(string $remainingPrincipalBeginning, string $annualInterestRatePercent): string
+{
+    $p = (float) $remainingPrincipalBeginning;
+    $r = (float) $annualInterestRatePercent;
+    $raw = $p * ($r / 100.0) / 12.0;
+
+    return number_format(round($raw, 2, PHP_ROUND_HALF_UP), 2, '.', '');
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $path = is_string($rawPath) && $rawPath !== '' ? $rawPath : '/';
@@ -106,7 +165,7 @@ $routes = [
         header('Content-Type: text/html; charset=utf-8');
         echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>' . e($title) . '</title></head><body>';
         echo '<p>' . e($heading) . '</p>';
-        echo '<p><a href="/borrowers">Borrowers</a> · <a href="/entities">Entities</a> · <a href="/loans">Loans</a></p>';
+        echo '<p><a href="/borrowers">Borrowers</a> · <a href="/entities">Entities</a> · <a href="/loans">Loans</a> · <a href="/checks">Checks</a></p>';
         echo '<form method="post" action="/logout">' . csrf_field() . '<button type="submit">Sign out</button></form>';
         echo '</body></html>';
     },
@@ -437,6 +496,137 @@ $routes = [
                 echo '<td class="px-3 py-2">' . e($rate) . '</td>';
                 echo '<td class="px-3 py-2">' . e($ptype) . '</td>';
                 echo '<td class="px-3 py-2"><a class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-800 hover:bg-slate-50" href="/loans/edit?id=' . e($id) . '">Edit</a></td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table></div></div></body></html>';
+    },
+    'GET /checks' => static function (): void {
+        $title = 'Interest checks';
+        $monthParam = $_GET['month'] ?? '';
+        $selectedYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
+        if (is_string($monthParam) && preg_match('/^\d{4}-\d{2}$/', $monthParam)) {
+            $parsedMonth = DateTimeImmutable::createFromFormat('Y-m', $monthParam);
+            if ($parsedMonth instanceof DateTimeImmutable && $parsedMonth->format('Y-m') === $monthParam) {
+                $selectedYm = $monthParam;
+            }
+        }
+
+        $rows = dbAll(
+            'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, l.monthly_interest, l.interest_calc_method, l.principal_payment_monthly, l.payment_type, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
+            []
+        );
+        $monthlyRows = [];
+        $prepaidRows = [];
+        foreach ($rows as $row) {
+            $ptype = (string) ($row['payment_type'] ?? '');
+            if ($ptype === 'prepaid') {
+                $prepaidRows[] = $row;
+
+                continue;
+            }
+            if (in_array($ptype, ['interest_only', 'amortizing'], true)) {
+                $monthlyRows[] = $row;
+            }
+        }
+
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+        echo '<script src="https://cdn.tailwindcss.com"></script>';
+        echo '<title>' . e($title) . '</title></head><body class="min-h-screen bg-slate-50 p-6 text-slate-900">';
+        echo '<div class="mx-auto max-w-6xl space-y-6">';
+        echo '<div class="flex flex-wrap items-end justify-between gap-4">';
+        echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
+        echo '<form class="flex flex-wrap items-end gap-2" method="get" action="/checks">';
+        echo '<div><label class="mb-1 block text-xs font-medium text-slate-600" for="month">Calendar month</label>';
+        echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="month" name="month" type="month" value="' . e($selectedYm) . '"></div>';
+        echo '<button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Show</button>';
+        echo '</form></div>';
+        echo '<p class="text-sm text-slate-600">Read-only expected interest for <strong>interest-only</strong> and <strong>amortizing</strong> loans. Prepaid loans are listed separately (unchanged). No data is saved from this page.</p>';
+        echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a>';
+
+        echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
+        echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
+        echo '<th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Method</th>';
+        echo '<th class="px-3 py-2 font-medium">Expected interest</th><th class="px-3 py-2 font-medium">Done</th><th class="px-3 py-2 font-medium">Notes</th>';
+        echo '</tr></thead><tbody>';
+        if ($monthlyRows === []) {
+            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="6">No interest-only or amortizing loans.</td></tr>';
+        } else {
+            foreach ($monthlyRows as $row) {
+                $entityName = (string) ($row['entity_name'] ?? '');
+                $loanName = (string) ($row['name'] ?? '');
+                $origin = (string) ($row['origin_date'] ?? '');
+                $principalStr = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '0.00';
+                $annualStr = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '0.000';
+                $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
+                if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
+                    $calcMethod = 'fixed';
+                }
+                $mppStr = $row['principal_payment_monthly'] !== null && $row['principal_payment_monthly'] !== '' ? (string) $row['principal_payment_monthly'] : '0.00';
+                $monthlyIntStr = $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
+
+                $expectedCellHtml = '<span class="text-slate-400">—</span>';
+                $notes = '';
+                $checkAttrs = ' type="checkbox" class="h-4 w-4 rounded border-slate-300"';
+
+                if ($calcMethod === 'fixed') {
+                    if ($monthlyIntStr !== '') {
+                        if (extension_loaded('bcmath')) {
+                            $exp = bcadd($monthlyIntStr, '0', 2);
+                        } else {
+                            $exp = number_format((float) $monthlyIntStr, 2, '.', '');
+                        }
+                        $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($exp) . '</div>';
+                    } else {
+                        $notes = 'Set monthly_interest for fixed loans.';
+                        $checkAttrs .= ' disabled';
+                    }
+                } else {
+                    $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $selectedYm);
+                    $remainingStr = loan_remaining_principal_after_paydowns($principalStr, $mppStr, $monthsElapsed);
+                    if (extension_loaded('bcmath')) {
+                        $paidOff = bccomp($remainingStr, '0', 2) <= 0;
+                    } else {
+                        $paidOff = (float) $remainingStr <= 0.0;
+                    }
+                    if ($paidOff) {
+                        $expectedCellHtml = '<div class="font-medium text-slate-400">—</div><div class="text-xs text-slate-500">Paid off</div>';
+                        $checkAttrs .= ' disabled';
+                    } else {
+                        $exp = checks_declining_monthly_interest($remainingStr, $annualStr);
+                        $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($exp) . '</div>'
+                            . '<div class="text-xs text-slate-500">Remaining principal (start of month): ' . e($remainingStr) . '</div>';
+                    }
+                }
+
+                echo '<tr class="border-t border-slate-100">';
+                echo '<td class="px-3 py-2">' . e($entityName) . '</td>';
+                echo '<td class="px-3 py-2">' . e($loanName) . '</td>';
+                echo '<td class="px-3 py-2">' . e($calcMethod) . '</td>';
+                echo '<td class="px-3 py-2">' . $expectedCellHtml . '</td>';
+                echo '<td class="px-3 py-2"><label class="inline-flex items-center gap-2"><input' . $checkAttrs . '> <span class="sr-only">Received</span></label></td>';
+                echo '<td class="px-3 py-2 text-slate-600">' . e($notes) . '</td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table></div>';
+
+        echo '<h2 class="text-lg font-semibold text-slate-800">Prepaid loans</h2>';
+        echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
+        echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
+        echo '<th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Notes</th>';
+        echo '</tr></thead><tbody>';
+        if ($prepaidRows === []) {
+            echo '<tr><td class="px-3 py-4 text-slate-500" colspan="3">No prepaid loans.</td></tr>';
+        } else {
+            foreach ($prepaidRows as $row) {
+                $entityName = (string) ($row['entity_name'] ?? '');
+                $loanName = (string) ($row['name'] ?? '');
+                echo '<tr class="border-t border-slate-100">';
+                echo '<td class="px-3 py-2">' . e($entityName) . '</td>';
+                echo '<td class="px-3 py-2">' . e($loanName) . '</td>';
+                echo '<td class="px-3 py-2 text-slate-600">Prepaid — not part of monthly interest checklist.</td>';
                 echo '</tr>';
             }
         }
