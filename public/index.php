@@ -130,6 +130,30 @@ function checks_declining_monthly_interest(string $remainingPrincipalBeginning, 
     return number_format(round($raw, 2, PHP_ROUND_HALF_UP), 2, '.', '');
 }
 
+/** Normalize a decimal money string to exactly 2 fractional digits (for display and sums). */
+function checks_normalize_money_2(string $amount): string
+{
+    $t = trim($amount);
+    if ($t === '') {
+        $t = '0';
+    }
+    if (extension_loaded('bcmath')) {
+        return bcadd($t, '0', 2);
+    }
+
+    return number_format((float) $t, 2, '.', '');
+}
+
+/** Sum two money strings at 2 decimal places (bcmath scale 2; otherwise half-up). */
+function checks_add_money_2(string $a, string $b): string
+{
+    if (extension_loaded('bcmath')) {
+        return bcadd($a, $b, 2);
+    }
+
+    return number_format(round((float) $a + (float) $b, 2, PHP_ROUND_HALF_UP), 2, '.', '');
+}
+
 /**
  * Loans for GET /checks: only reference optional columns when they exist so production DBs
  * that predate interest_calc_method (or other checklist fields) do not error.
@@ -580,13 +604,13 @@ $routes = [
         echo '<input class="rounded border border-slate-300 px-3 py-2 text-sm" id="month" name="month" type="month" value="' . e($selectedYm) . '"></div>';
         echo '<button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Show</button>';
         echo '</form></div>';
-        echo '<p class="text-sm text-slate-600">Read-only expected interest for <strong>interest-only</strong> and <strong>amortizing</strong> loans. Prepaid loans are listed separately (unchanged). No data is saved from this page.</p>';
+        echo '<p class="text-sm text-slate-600">Read-only expected payment for <strong>interest-only</strong> and <strong>amortizing</strong> loans. For <strong>declining balance</strong>, the total is interest on the remaining balance plus the scheduled monthly principal (<code class="text-xs">principal_payment_monthly</code>). Prepaid loans are listed separately (unchanged). No data is saved from this page.</p>';
         echo '<a class="text-sm text-slate-600 underline" href="/">Dashboard</a> · <a class="text-sm text-slate-600 underline" href="/loans">Loans</a>';
 
         echo '<div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">';
         echo '<table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>';
         echo '<th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Method</th>';
-        echo '<th class="px-3 py-2 font-medium">Expected interest</th><th class="px-3 py-2 font-medium">Done</th><th class="px-3 py-2 font-medium">Notes</th>';
+        echo '<th class="px-3 py-2 font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Done</th><th class="px-3 py-2 font-medium">Notes</th>';
         echo '</tr></thead><tbody>';
         if ($monthlyRows === []) {
             echo '<tr><td class="px-3 py-4 text-slate-500" colspan="6">No interest-only or amortizing loans.</td></tr>';
@@ -610,16 +634,11 @@ $routes = [
 
                 if ($calcMethod === 'fixed') {
                     if ($monthlyIntStr !== '') {
-                        if (extension_loaded('bcmath')) {
-                            $exp = bcadd($monthlyIntStr, '0', 2);
-                        } else {
-                            $exp = number_format((float) $monthlyIntStr, 2, '.', '');
-                        }
-                        $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($exp) . '</div>';
+                        $paymentStr = checks_normalize_money_2($monthlyIntStr);
                     } else {
-                        $exp = loan_simple_monthly_interest($principalStr, $annualStr);
-                        $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($exp) . '</div>';
+                        $paymentStr = loan_simple_monthly_interest($principalStr, $annualStr);
                     }
+                    $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($paymentStr) . '</div>';
                 } else {
                     $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $selectedYm);
                     $remainingStr = loan_remaining_principal_after_paydowns($principalStr, $mppStr, $monthsElapsed);
@@ -632,9 +651,12 @@ $routes = [
                         $expectedCellHtml = '<div class="font-medium text-slate-400">—</div><div class="text-xs text-slate-500">Paid off</div>';
                         $checkAttrs .= ' disabled';
                     } else {
-                        $exp = checks_declining_monthly_interest($remainingStr, $annualStr);
-                        $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($exp) . '</div>'
-                            . '<div class="text-xs text-slate-500">Remaining principal (start of month): ' . e($remainingStr) . '</div>';
+                        $interestStr = checks_declining_monthly_interest($remainingStr, $annualStr);
+                        $principalPortionStr = checks_normalize_money_2($mppStr);
+                        $paymentStr = checks_add_money_2($interestStr, $principalPortionStr);
+                        $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($paymentStr) . '</div>'
+                            . '<div class="text-xs text-slate-500">interest: $' . e($interestStr) . '</div>'
+                            . '<div class="text-xs text-slate-500">principal: $' . e($principalPortionStr) . '</div>';
                     }
                 }
 

@@ -60,7 +60,7 @@ php bin/migrate.php
 
 This creates `schema_migrations` (if needed) and applies all `migrations/*.sql` files in lexicographic order (e.g. `0002_core_tables.sql`).
 
-The `loans` table includes `principal_amount`, `annual_interest_rate` (annual percent, up to three decimal places, e.g. `12.500`), optional `monthly_interest` and `interest_calc_method` (`fixed` or `declining_balance`) and optional `principal_payment_monthly` for paydown on declining-balance checks, and `payment_type` (`interest_only`, `prepaid`, `amortizing`). There is no amortization schedule yet; interest-only and amortizing loans use the same simple monthly estimate on full principal: `principal_amount * (annual_interest_rate / 100) / 12` (see `loan_simple_monthly_interest()` in `public/index.php`). The **Checks** page (`GET /checks`) uses stored `monthly_interest` for fixed-method rows when it is set; otherwise it uses the same simple full-principal formula as above. `declining_balance` uses beginning-of-month remaining principal × annual rate ÷ 12.
+The `loans` table includes `principal_amount`, `annual_interest_rate` (annual percent, up to three decimal places, e.g. `12.500`), optional `monthly_interest` and `interest_calc_method` (`fixed` or `declining_balance`) and optional `principal_payment_monthly` for paydown on declining-balance checks, and `payment_type` (`interest_only`, `prepaid`, `amortizing`). There is no amortization schedule yet; interest-only and amortizing loans use the same simple monthly estimate on full principal: `principal_amount * (annual_interest_rate / 100) / 12` (see `loan_simple_monthly_interest()` in `public/index.php`). The **Checks** page (`GET /checks`) shows an **expected payment** column. **Fixed** method: stored `monthly_interest` when set, otherwise the same simple full-principal monthly interest as above. **Declining balance**: interest on beginning-of-month remaining principal (half-up to 2 decimals) plus constant `principal_payment_monthly` as the principal portion; the primary figure is the sum (both rounded to 2 decimals before display).
 
 #### Upgrading an existing database (old `interest_type` / `monthly_interest`)
 
@@ -104,7 +104,7 @@ Afterward, edit migrated loans in the app to set real principal and annual rate 
 1. Open the site in a browser (e.g. `https://localhost/priv-lending/` depending on your vhost).
 2. Go to **Login** and submit the form (single-user demo: user id `1`).
 3. Use **Borrowers → Entities → Loans** to create records in order (foreign keys require parents to exist first).
-4. Open **Checks** (`/checks`) from the dashboard for a read-only monthly interest checklist (no writes).
+4. Open **Checks** (`/checks`) from the dashboard for a read-only monthly expected-payment view (no writes).
 
 ### Upgrading `loans` for `/checks` (existing databases)
 
@@ -119,13 +119,15 @@ ALTER TABLE loans ADD COLUMN principal_payment_monthly DECIMAL(12, 2) NULL AFTER
 ### Manual validation checklist (GET /checks)
 
 1. **Month parameter:** Open `/checks` with no query string; the month control defaults to the current calendar month. Submit an invalid `?month=13-2026` or `?month=2026-13` via URL tampering; the page should fall back to the current month (server-side validation only).
-2. **Fixed:** With `interest_calc_method = 'fixed'`, set `monthly_interest` to a known value; expected interest equals that amount. Clear `monthly_interest`; expected interest falls back to full principal × annual rate ÷ 12 (`loan_simple_monthly_interest`). Checkbox stays enabled.
-3. **Declining balance:** Use `interest_calc_method = 'declining_balance'` with `principal_amount`, `annual_interest_rate` (percent per year, e.g. `12`), and `principal_payment_monthly`. `months_elapsed` is the count of full calendar months from the loan’s origin month to the selected month (days ignored; aligns to month boundaries). Beginning-of-month remaining principal is `principal_amount - principal_payment_monthly * months_elapsed` (clamped to ≥ 0). Expected interest is `remaining × (annual_interest_rate / 100) / 12`, then **rounded half-up to 2 decimals** (`checks_declining_monthly_interest`). Interest uses that **beginning** balance; each increment in `months_elapsed` reflects principal applied before the **next** month. The Checks page shows expected interest as the main line and remaining principal as smaller secondary text under it.
-4. **Paid off:** When remaining principal at the start of the selected month is ≤ 0, expected interest shows "—", secondary line "Paid off", checkbox disabled (not checkable). Notes column stays empty for that case.
-5. **Prepaid:** Loans with `payment_type = 'prepaid'` appear only in the prepaid table at the bottom with the informational note; they are not given declining/fixed math on this page.
-6. **No writes:** Confirm no POST from this page and no `INSERT`/`UPDATE` in the `GET /checks` handler; checkboxes have no `name` attribute so they are not submitted.
-7. **Declining rounding:** With a remaining balance and annual rate such that raw monthly interest needs rounding, confirm the displayed expected amount uses **half-up** to two decimals (`checks_declining_monthly_interest`).
-8. **Beginning balance text:** For a known declining loan, confirm the secondary line "Remaining principal (start of month)" matches `principal_amount - principal_payment_monthly × months_elapsed` (same month-count rule as checklist item 3) before interest for that month.
+2. **Column header:** The main table lists **Expected payment** (not “Expected interest”).
+3. **Fixed:** With `interest_calc_method = 'fixed'`, the primary amount equals stored `monthly_interest` when set (two decimal places). Clear `monthly_interest`; the primary amount equals full principal × annual rate ÷ 12 (`loan_simple_monthly_interest`). Checkbox stays enabled.
+4. **Declining balance — payment:** With `interest_calc_method = 'declining_balance'`, non–paid-off rows: compute expected interest as today (`remaining × (annual_interest_rate / 100) / 12`, half-up to 2 decimals on interest). Expected principal portion equals `principal_payment_monthly` normalized to 2 decimals. **Expected payment** (primary) equals interest + principal (sum at 2 decimals). Under the primary amount, two small lines appear: `interest: $…` and `principal: $…` matching those components.
+5. **Declining balance — paid off:** When remaining principal at the start of the selected month is ≤ 0, the primary cell shows "—", secondary line "Paid off", checkbox disabled. Notes column stays empty.
+6. **Prepaid:** Loans with `payment_type = 'prepaid'` appear only in the prepaid table at the bottom with the informational note; they are not included in the main expected-payment table.
+7. **No writes:** Confirm no POST from this page and no `INSERT`/`UPDATE` in the `GET /checks` handler; checkboxes have no `name` attribute so they are not submitted.
+8. **Rounding:** Interest portion uses **half-up** to two decimals (`checks_declining_monthly_interest`). Principal portion is shown at two decimals. Total expected payment is the sum at two decimal places (`checks_add_money_2`).
+9. **Interest-only declining (edge):** If a loan uses `declining_balance` with a non-zero `principal_payment_monthly`, the principal line should match that monthly amount even when payment type is interest-only (unusual but allowed).
+10. **POST /checks/submit:** If implemented elsewhere, it should continue to persist the **total** expected amount (payment), not a split; this change does not alter that contract.
 
 ---
 
