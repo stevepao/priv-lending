@@ -43,11 +43,11 @@ function load_dotenv(?string $rootDir = null): void
 }
 
 /**
- * Get an environment variable loaded from .env or the process environment.
- *
+ * @param string $key
+ * @param mixed $default
  * @return mixed
  */
-function env(string $key, mixed $default = null): mixed
+function env(string $key, $default = null)
 {
     if (array_key_exists($key, $_ENV)) {
         return $_ENV[$key];

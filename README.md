@@ -8,7 +8,7 @@ A small PHP application to support **direct private lending** workflows (borrowe
 
 ## Requirements
 
-- **PHP** 8.1+ (8.2+ recommended) with extensions: `pdo`, `pdo_mysql`, `session`, `json`
+- **PHP** 8.1+ for the **web** SAPI (Apache/mod_php or PHP-FPM), with extensions: `pdo`, `pdo_mysql`, `session`, `json`. The version shown by `php -v` or `php8.4-cli -v` in SSH is often **CLI only**—set the PHP version for the domain in your hosting control panel.
 - **MySQL** 8.x (or compatible) with a database you control
 - A web server that can run PHP and, for clean URLs, **rewrite** requests to `public/index.php` (Apache `mod_rewrite` is configured in `public/.htaccess`)
 
@@ -85,6 +85,16 @@ This creates `schema_migrations` (if needed) and applies all `migrations/*.sql` 
 ### PHP’s built-in server
 
 The built-in server (`php -S`) does **not** read `.htaccess`. Path-based routes like `/login` will not resolve unless you add a small router script or use Apache/nginx. For day-to-day local work, use Apache, nginx, or a tool that supports rewrite rules (e.g. Laravel Herd, MAMP, Docker with Apache/nginx).
+
+### HTTP 500 on shared hosting (IONOS, etc.)
+
+1. **Web PHP is not the same as CLI PHP.** A shell command like `php8.4-cli -v` only shows the **CLI** binary. Apache may still run an older PHP for `.php` files. In your host’s control panel, set the domain (or subdirectory) to **PHP 8.1 or newer** for the site that serves `priv-lending`.
+
+2. **Document root** must be the **`public/`** folder inside the project (not the repo root). If Apache’s document root is wrong, rewrites and `index.php` may never run correctly.
+
+3. **Read the real error.** In IONOS Linux hosting, check **Logs** in the panel or files such as `~/logs/error.log` (exact path varies). The log line immediately after your request usually names the cause (e.g. unknown function, parse error, `Options not allowed here`).
+
+4. **Extensions.** Ensure **`pdo_mysql`** is enabled for the **web** PHP version (not only CLI).
 
 ---
 
