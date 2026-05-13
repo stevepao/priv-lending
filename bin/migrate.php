@@ -10,6 +10,13 @@ if (php_sapi_name() !== 'cli') {
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'db.php';
 
+$dbName = (string) env('DB_NAME', '');
+fwrite(STDOUT, 'priv-lending migrate');
+if ($dbName !== '') {
+    fwrite(STDOUT, ' · database ' . $dbName);
+}
+fwrite(STDOUT, "\n");
+
 $pdo = db();
 
 $pdo->exec(
@@ -40,9 +47,19 @@ foreach ($files as $path) {
 }
 
 if ($pending === []) {
-    echo "Nothing to migrate\n";
+    $nFiles = count($files);
+    if ($nFiles === 0) {
+        fwrite(STDOUT, "Status: no .sql files found under migrations/. Nothing to apply.\n");
+    } else {
+        fwrite(
+            STDOUT,
+            "Status: up to date - all {$nFiles} migration file(s) in migrations/ are already recorded in schema_migrations. No SQL was executed this run.\n"
+        );
+    }
     exit(0);
 }
+
+fwrite(STDOUT, 'Applying ' . count($pending) . " pending migration(s)...\n");
 
 foreach ($pending as $path) {
     $filename = basename($path);
@@ -64,11 +81,13 @@ foreach ($pending as $path) {
         $stmt->execute([$filename, date('Y-m-d H:i:s')]);
 
         $pdo->commit();
-        echo 'Applied: ' . $filename . "\n";
+        fwrite(STDOUT, 'Applied: ' . $filename . "\n");
     } catch (Throwable $e) {
         $pdo->rollBack();
         throw $e;
     }
 }
+
+fwrite(STDOUT, "Done. schema_migrations was updated for the migration(s) listed above.\n");
 
 exit(0);
