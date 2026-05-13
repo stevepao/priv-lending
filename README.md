@@ -60,22 +60,22 @@ php bin/migrate.php
 
 This creates `schema_migrations` (if needed) and applies all `migrations/*.sql` files in lexicographic order (e.g. `0002_core_tables.sql`).
 
-The `loans` table includes `principal_amount`, `interest_rate` (annual percent), and `payment_type` (`interest_only`, `prepaid`, `amortizing`). There is no amortization schedule yet; interest-only and amortizing loans use the same simple monthly estimate on full principal: `principal_amount * (interest_rate / 100) / 12` (see `loan_simple_monthly_interest()` in `public/index.php`).
+The `loans` table includes `principal_amount`, `annual_interest_rate` (annual percent, up to three decimal places, e.g. `12.500`), and `payment_type` (`interest_only`, `prepaid`, `amortizing`). There is no amortization schedule yet; interest-only and amortizing loans use the same simple monthly estimate on full principal: `principal_amount * (annual_interest_rate / 100) / 12` (see `loan_simple_monthly_interest()` in `public/index.php`).
 
 #### Upgrading an existing database (old `interest_type` / `monthly_interest`)
 
-Only run this if your `loans` table still has `interest_type` (for example you applied an older `0002_core_tables.sql` before principal fields existed). If you already have `payment_type` and `principal_amount`, skip this block.
+Only run this if your `loans` table still has `interest_type` (for example you applied an older `0002_core_tables.sql` before principal fields existed). If you already have `payment_type` and `principal_amount`, skip this block. If you have `interest_rate` but not `annual_interest_rate`, use `CHANGE COLUMN` (see MySQL docs) instead of adding a duplicate.
 
 ```sql
 ALTER TABLE loans ADD COLUMN principal_amount DECIMAL(12, 2) NULL AFTER name;
-ALTER TABLE loans ADD COLUMN interest_rate DECIMAL(5, 2) NULL AFTER principal_amount;
-ALTER TABLE loans ADD COLUMN payment_type ENUM('interest_only', 'prepaid', 'amortizing') NULL AFTER interest_rate;
+ALTER TABLE loans ADD COLUMN annual_interest_rate DECIMAL(6, 3) NULL AFTER principal_amount;
+ALTER TABLE loans ADD COLUMN payment_type ENUM('interest_only', 'prepaid', 'amortizing') NULL AFTER annual_interest_rate;
 UPDATE loans SET payment_type = CASE interest_type WHEN 'prepaid' THEN 'prepaid' ELSE 'interest_only' END;
 UPDATE loans SET principal_amount = 0.00 WHERE principal_amount IS NULL;
-UPDATE loans SET interest_rate = 0.00 WHERE interest_rate IS NULL;
+UPDATE loans SET annual_interest_rate = 0.000 WHERE annual_interest_rate IS NULL;
 UPDATE loans SET payment_type = 'interest_only' WHERE payment_type IS NULL;
 ALTER TABLE loans MODIFY principal_amount DECIMAL(12, 2) NOT NULL;
-ALTER TABLE loans MODIFY interest_rate DECIMAL(5, 2) NOT NULL;
+ALTER TABLE loans MODIFY annual_interest_rate DECIMAL(6, 3) NOT NULL;
 ALTER TABLE loans MODIFY payment_type ENUM('interest_only', 'prepaid', 'amortizing') NOT NULL;
 ALTER TABLE loans DROP COLUMN monthly_interest;
 ALTER TABLE loans DROP COLUMN interest_type;
@@ -85,7 +85,7 @@ Afterward, edit migrated loans in the app to set real principal and annual rate 
 
 ### Manual validation checklist (loans)
 
-1. **Fresh schema:** On a new database, run `php bin/migrate.php` and confirm `SHOW CREATE TABLE loans` lists `principal_amount`, `interest_rate`, and `payment_type`, and does not list `interest_type` or `monthly_interest`.
+1. **Fresh schema:** On a new database, run `php bin/migrate.php` and confirm `SHOW CREATE TABLE loans` lists `principal_amount`, `annual_interest_rate`, and `payment_type`, and does not list `interest_type` or `monthly_interest`.
 2. **Interest only:** Create a loan with payment type **Interest only**, principal `100000.00`, annual rate `12.00`, valid entity and dates. Save succeeds; list shows principal `100000.00`, rate `12.00`, payment type `interest_only`. Hover the principal cell: tooltip text should report estimated monthly interest `1000.00` (because \(100000 \times 0.12 / 12 = 1000\)).
 3. **Amortizing:** Create a loan with payment type **Amortizing** and the same principal/rate rules as interest-only. Save succeeds; list shows `amortizing`. Tooltip on principal uses the same formula (full principal; amortization not implemented yet).
 4. **Prepaid:** Create a loan with payment type **Prepaid**, prepaid amount `5000.00`, prepaid date set, leave principal/rate blank or zero. Save succeeds; list shows `prepaid` and principal/rate `0.00` / `0.00` (stored placeholders).

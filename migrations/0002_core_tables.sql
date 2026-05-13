@@ -18,7 +18,7 @@ CREATE TABLE loans (
     entity_id INT NOT NULL,
     name VARCHAR(255) NOT NULL,
     principal_amount DECIMAL(12, 2) NOT NULL,
-    interest_rate DECIMAL(5, 2) NOT NULL,
+    annual_interest_rate DECIMAL(6, 3) NOT NULL,
     funding_source ENUM('JPM', 'NTRS') NOT NULL,
     origin_date DATE NOT NULL,
     maturity_date DATE NULL,
