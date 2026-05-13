@@ -1766,6 +1766,7 @@ $routes = [
         $selNtrs = $funding === 'NTRS' ? ' selected' : '';
         $chkIo = $ptype === 'interest_only' ? ' checked' : '';
         $chkAm = $ptype === 'amortizing' ? ' checked' : '';
+        $chkPre = $ptype === 'prepaid' ? ' checked' : '';
         $hasFundingPostedCol = schema_table_has_column('loans', 'funding_principal_out_posted');
         $fundingPosted = $hasFundingPostedCol && (int) ($loan['funding_principal_out_posted'] ?? 0) === 1;
         echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
