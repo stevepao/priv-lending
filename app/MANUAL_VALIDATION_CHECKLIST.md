@@ -40,7 +40,12 @@ Run logged in, with migrations applied if you use posting / Posted status.
 18. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym, category)`.
 19. **GET /cash-events/new** and **POST /cash-events/new** — Unchanged.
 
+## Bank (`public/index.php`)
+
+20. **GET /bank** — Form shows bank selector (JPM / NTRS), statement date, interest amount, principal amount (default 0.00); CSRF field; **Save** posts to **POST /bank**; **Cancel** to `/`; invalid query shows amber banner.
+21. **POST /bank** — Valid submission inserts two `cash_events` with `loan_id` NULL, `deposit_to` equal to selected bank, `event_date` equal to statement date, amounts **negative** of the entered values: first row `category = loc_interest`, second `category = principal_out` (second row inserted even when principal is 0); `scheduled_check_ym` NULL when that column exists. CSRF enforced. Invalid input redirects to **GET /bank?invalid=1** with no inserts.
+
 ## Other routes
 
-20. **GET /** — Still works.
-21. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
+22. **GET /** — Dashboard link row includes **Bank** when present.
+23. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
