@@ -31,6 +31,17 @@ require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'db.php';
 
 /**
+ * Load a PHP view from app/views/. Keys in $data are extracted as local variables for the template.
+ *
+ * @param array<string, mixed> $data
+ */
+function render(string $view, array $data = []): void
+{
+    extract($data);
+    require __DIR__ . '/../app/views/' . $view . '.php';
+}
+
+/**
  * Monthly interest on full principal at the stated annual rate (no amortization).
  * Formula: principal_amount * (annual_interest_rate / 100) / 12
  */
