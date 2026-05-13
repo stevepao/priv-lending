@@ -54,6 +54,23 @@ function loan_simple_monthly_interest(string $principalAmount, string $annualRat
     return number_format($p * ($r / 100.0) / 12.0, 2, '.', '');
 }
 
+/** Normalize user-entered decimals: trim, strip leading $, US thousands with commas, else comma as decimal, strip trailing % for rates. */
+function loan_normalize_decimal_input(string $s, bool $stripPercentSuffix = false): string
+{
+    $s = trim($s);
+    $s = ltrim($s, '$');
+    if (preg_match('/^\d{1,3}(,\d{3})+(\.\d{1,4})?$/', $s)) {
+        $s = str_replace(',', '', $s);
+    } elseif (str_contains($s, ',') && !str_contains($s, '.')) {
+        $s = str_replace(',', '.', $s);
+    }
+    if ($stripPercentSuffix) {
+        $s = rtrim($s, " \t\n\r\0\x0B%");
+    }
+
+    return $s;
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $path = is_string($rawPath) && $rawPath !== '' ? $rawPath : '/';
@@ -435,6 +452,9 @@ $routes = [
         echo '<div class="mx-auto max-w-xl space-y-4">';
         echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
         echo '<a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>';
+        if (isset($_GET['invalid'])) {
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. Check required fields: for interest-only or amortizing, principal and annual rate must be greater than zero. Use a dot or comma as the decimal separator (e.g. 100000.00 or 100000,00), optional US thousands like 50,000.00, or a trailing % on the rate. Prepaid fields can be left blank for those types.</p>';
+        }
         if ($entities === []) {
             echo '<p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>';
         } else {
@@ -515,6 +535,9 @@ $routes = [
         echo '<div class="mx-auto max-w-xl space-y-4">';
         echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
         echo '<a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>';
+        if (isset($_GET['invalid'])) {
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. Check required fields and number formats (principal and annual rate must be greater than zero for interest-only or amortizing; use 100000.00 or 100000,00).</p>';
+        }
         if ($entities === []) {
             echo '<p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>';
         } else {
@@ -614,14 +637,14 @@ $routes = [
         $funding = (string) ($_POST['funding_source'] ?? '');
         $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
         $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
-        $paymentType = (string) ($_POST['payment_type'] ?? '');
-        $principalRaw = trim((string) ($_POST['principal_amount'] ?? ''));
-        $rateRaw = trim((string) ($_POST['annual_interest_rate'] ?? ''));
-        $prepaidAmtRaw = trim((string) ($_POST['prepaid_interest_amount'] ?? ''));
+        $paymentType = trim((string) ($_POST['payment_type'] ?? ''));
+        $principalRaw = loan_normalize_decimal_input((string) ($_POST['principal_amount'] ?? ''));
+        $rateRaw = loan_normalize_decimal_input((string) ($_POST['annual_interest_rate'] ?? ''), true);
+        $prepaidAmtRaw = loan_normalize_decimal_input((string) ($_POST['prepaid_interest_amount'] ?? ''));
         $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
 
         $redirect = static function (): void {
-            header('Location: /loans/new');
+            header('Location: /loans/new?invalid=1');
             exit;
         };
 
@@ -749,7 +772,7 @@ $routes = [
         }
 
         $redirect = static function (int $lid): void {
-            header('Location: /loans/edit?id=' . $lid);
+            header('Location: /loans/edit?id=' . $lid . '&invalid=1');
             exit;
         };
 
@@ -758,10 +781,10 @@ $routes = [
         $funding = (string) ($_POST['funding_source'] ?? '');
         $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
         $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
-        $paymentType = (string) ($_POST['payment_type'] ?? '');
-        $principalRaw = trim((string) ($_POST['principal_amount'] ?? ''));
-        $rateRaw = trim((string) ($_POST['annual_interest_rate'] ?? ''));
-        $prepaidAmtRaw = trim((string) ($_POST['prepaid_interest_amount'] ?? ''));
+        $paymentType = trim((string) ($_POST['payment_type'] ?? ''));
+        $principalRaw = loan_normalize_decimal_input((string) ($_POST['principal_amount'] ?? ''));
+        $rateRaw = loan_normalize_decimal_input((string) ($_POST['annual_interest_rate'] ?? ''), true);
+        $prepaidAmtRaw = loan_normalize_decimal_input((string) ($_POST['prepaid_interest_amount'] ?? ''));
         $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
 
         if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
