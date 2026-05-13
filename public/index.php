@@ -200,6 +200,75 @@ function loan_parse_checks_fields_from_post(string $paymentType)
     ];
 }
 
+/** Normalize annual rate percent string to DECIMAL(6,3) scale for storage. */
+function loan_format_annual_rate_db_string(string $rate): string
+{
+    if (extension_loaded('bcmath')) {
+        return bcadd($rate, '0', 3);
+    }
+
+    return number_format((float) $rate, 3, '.', '');
+}
+
+/**
+ * Validate principal + annual rate for interest_only / amortizing saves.
+ * Fixed method with monthly_interest set: annual rate may be blank or zero (stored as 0.000).
+ * Otherwise principal and annual rate must parse and both be > 0.
+ *
+ * @param array{monthly_interest: ?string, interest_calc_method: string, principal_payment_monthly: ?string} $checksFields
+ *
+ * @return array{principalStr: string, rateStr: string}|false
+ */
+function loan_principal_and_annual_for_io_amortizing_save(string $principalRaw, string $rateRaw, array $checksFields): array|false
+{
+    $p = trim(loan_normalize_decimal_input($principalRaw));
+    if ($p === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $p)) {
+        return false;
+    }
+    if (extension_loaded('bcmath')) {
+        if (bccomp($p, '0', 2) !== 1) {
+            return false;
+        }
+    } elseif ((float) $p <= 0.0) {
+        return false;
+    }
+
+    $r = trim(loan_normalize_decimal_input($rateRaw, true));
+    $fixedOverride = ($checksFields['interest_calc_method'] ?? '') === 'fixed'
+        && $checksFields['monthly_interest'] !== null;
+
+    if ($fixedOverride) {
+        if ($r === '') {
+            return ['principalStr' => $p, 'rateStr' => '0.000'];
+        }
+        if (!preg_match('/^\d{1,3}(\.\d{1,3})?$/', $r)) {
+            return false;
+        }
+        if (extension_loaded('bcmath')) {
+            if (bccomp($r, '0', 3) < 0) {
+                return false;
+            }
+        } elseif ((float) $r < 0.0) {
+            return false;
+        }
+
+        return ['principalStr' => $p, 'rateStr' => loan_format_annual_rate_db_string($r)];
+    }
+
+    if ($r === '' || !preg_match('/^\d{1,3}(\.\d{1,3})?$/', $r)) {
+        return false;
+    }
+    if (extension_loaded('bcmath')) {
+        if (bccomp($r, '0', 3) !== 1) {
+            return false;
+        }
+    } elseif ((float) $r <= 0.0) {
+        return false;
+    }
+
+    return ['principalStr' => $p, 'rateStr' => loan_format_annual_rate_db_string($r)];
+}
+
 /**
  * Column names present on `loans` in the current database (cached per request).
  *
@@ -769,7 +838,7 @@ $routes = [
         echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
         echo '<a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>';
         if (isset($_GET['invalid'])) {
-            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. Check required fields: for interest-only or amortizing, principal and annual rate must be greater than zero. Use a dot or comma as the decimal separator (e.g. 100000.00 or 100000,00), optional US thousands like 50,000.00, or a trailing % on the rate. Prepaid fields can be left blank for those types. Optional monthly amounts must be non-negative with at most two decimal places.</p>';
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Use a dot or comma as the decimal separator (e.g. 100000.00 or 100000,00), optional US thousands, or a trailing % on the rate. Prepaid: amount and date required. Optional monthly amounts must be non-negative with at most two decimal places.</p>';
         }
         if ($entities === []) {
             echo '<p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>';
@@ -811,7 +880,7 @@ $routes = [
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_payment_monthly">Monthly principal payment (paydown)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_payment_monthly" name="principal_payment_monthly" type="text" inputmode="decimal" placeholder="0.00 — typical for amortizing"></div>';
             echo '</fieldset>';
-            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal and annual rate are required. Prepaid: prepaid amount and date are required (principal/rate may be zero). Optional amounts: non-negative, up to two decimal places.</p>';
+            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal required; annual rate required unless <strong>fixed</strong> with <strong>monthly interest</strong> set (then Checks uses that amount; leave monthly interest blank to derive from principal and rate on Checks). Prepaid: prepaid amount and date are required (principal/rate may be zero). Optional amounts: non-negative, up to two decimal places.</p>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00"></div>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
@@ -872,7 +941,7 @@ $routes = [
         echo '<h1 class="text-2xl font-semibold">' . e($title) . '</h1>';
         echo '<a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>';
         if (isset($_GET['invalid'])) {
-            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. Check required fields and number formats (principal and annual rate must be greater than zero for interest-only or amortizing; use 100000.00 or 100000,00). Optional monthly amounts must be non-negative with at most two decimal places.</p>';
+            echo '<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Check number formats (use 100000.00 or 100000,00). Optional monthly amounts must be non-negative with at most two decimal places.</p>';
         }
         if ($entities === []) {
             echo '<p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>';
@@ -916,7 +985,7 @@ $routes = [
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_payment_monthly">Monthly principal payment (paydown)</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_payment_monthly" name="principal_payment_monthly" type="text" inputmode="decimal" placeholder="0.00 — typical for amortizing" value="' . e($mppVal) . '"></div>';
             echo '</fieldset>';
-            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal and annual rate are required. Prepaid: prepaid amount and date are required. Optional amounts: non-negative, up to two decimal places.</p>';
+            echo '<p class="text-xs text-slate-500">Interest only and amortizing: principal required; annual rate required unless <strong>fixed</strong> with <strong>monthly interest</strong> set. Prepaid: prepaid amount and date are required. Optional amounts: non-negative, up to two decimal places.</p>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_amount">Prepaid interest amount</label>';
             echo '<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="prepaid_interest_amount" name="prepaid_interest_amount" type="text" inputmode="decimal" placeholder="0.00" value="' . e($pamtVal) . '"></div>';
             echo '<div><label class="mb-1 block text-sm font-medium text-slate-700" for="prepaid_interest_date">Prepaid interest date</label>';
@@ -952,32 +1021,6 @@ $routes = [
             return $s;
         };
 
-        $parsePrincipal = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $s)) {
-                return null;
-            }
-
-            return $s;
-        };
-
-        $parseAnnualRate = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '' || !preg_match('/^\d{1,3}(\.\d{1,3})?$/', $s)) {
-                return null;
-            }
-
-            return $s;
-        };
-
-        $principalRatePositive = static function (string $principal, string $rate): bool {
-            if (extension_loaded('bcmath')) {
-                return bccomp($principal, '0', 2) === 1 && bccomp($rate, '0', 3) === 1;
-            }
-
-            return (float) $principal > 0.0 && (float) $rate > 0.0;
-        };
-
         $entityId = (int) ($_POST['entity_id'] ?? 0);
         $name = trim((string) ($_POST['name'] ?? ''));
         $funding = (string) ($_POST['funding_source'] ?? '');
@@ -1008,6 +1051,11 @@ $routes = [
             $redirect();
         }
 
+        $checksFields = loan_parse_checks_fields_from_post($paymentType);
+        if ($checksFields === false) {
+            $redirect();
+        }
+
         $principalStr = '0.00';
         $rateStr = '0.00';
         $prepaidAmount = null;
@@ -1027,18 +1075,12 @@ $routes = [
                 $redirect();
             }
         } else {
-            $p = $parsePrincipal($principalRaw);
-            $r = $parseAnnualRate($rateRaw);
-            if ($p === null || $r === null || !$principalRatePositive($p, $r)) {
+            $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
+            if ($parsed === false) {
                 $redirect();
             }
-            $principalStr = $p;
-            $rateStr = $r;
-        }
-
-        $checksFields = loan_parse_checks_fields_from_post($paymentType);
-        if ($checksFields === false) {
-            $redirect();
+            $principalStr = $parsed['principalStr'];
+            $rateStr = $parsed['rateStr'];
         }
 
         $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
@@ -1096,32 +1138,6 @@ $routes = [
             return $s;
         };
 
-        $parsePrincipal = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $s)) {
-                return null;
-            }
-
-            return $s;
-        };
-
-        $parseAnnualRate = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '' || !preg_match('/^\d{1,3}(\.\d{1,3})?$/', $s)) {
-                return null;
-            }
-
-            return $s;
-        };
-
-        $principalRatePositive = static function (string $principal, string $rate): bool {
-            if (extension_loaded('bcmath')) {
-                return bccomp($principal, '0', 2) === 1 && bccomp($rate, '0', 3) === 1;
-            }
-
-            return (float) $principal > 0.0 && (float) $rate > 0.0;
-        };
-
         $loanId = (int) ($_POST['id'] ?? 0);
         if ($loanId < 1) {
             header('Location: /loans');
@@ -1158,6 +1174,11 @@ $routes = [
             $redirect($loanId);
         }
 
+        $checksFields = loan_parse_checks_fields_from_post($paymentType);
+        if ($checksFields === false) {
+            $redirect($loanId);
+        }
+
         $principalStr = '0.00';
         $rateStr = '0.00';
         $prepaidAmount = null;
@@ -1177,18 +1198,12 @@ $routes = [
                 $redirect($loanId);
             }
         } else {
-            $p = $parsePrincipal($principalRaw);
-            $r = $parseAnnualRate($rateRaw);
-            if ($p === null || $r === null || !$principalRatePositive($p, $r)) {
+            $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
+            if ($parsed === false) {
                 $redirect($loanId);
             }
-            $principalStr = $p;
-            $rateStr = $r;
-        }
-
-        $checksFields = loan_parse_checks_fields_from_post($paymentType);
-        if ($checksFields === false) {
-            $redirect($loanId);
+            $principalStr = $parsed['principalStr'];
+            $rateStr = $parsed['rateStr'];
         }
 
         $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
