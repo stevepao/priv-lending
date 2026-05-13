@@ -130,6 +130,47 @@ function checks_declining_monthly_interest(string $remainingPrincipalBeginning, 
     return number_format(round($raw, 2, PHP_ROUND_HALF_UP), 2, '.', '');
 }
 
+/**
+ * Loans for GET /checks: only reference optional columns when they exist so production DBs
+ * that predate interest_calc_method (or other checklist fields) do not error.
+ *
+ * @return list<array<string, mixed>>
+ */
+function checks_fetch_loan_rows_for_checks_page(): array
+{
+    /** @var array<string, bool>|null */
+    static $columnNameIndex = null;
+    if ($columnNameIndex === null) {
+        $colRows = dbAll(
+            'SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+            ['loans']
+        );
+        $columnNameIndex = [];
+        foreach ($colRows as $colRow) {
+            $columnNameIndex[(string) $colRow['c']] = true;
+        }
+    }
+
+    $monthlyInterestExpr = isset($columnNameIndex['monthly_interest'])
+        ? 'l.monthly_interest'
+        : 'CAST(NULL AS DECIMAL(12,2))';
+    $calcMethodExpr = isset($columnNameIndex['interest_calc_method'])
+        ? 'l.interest_calc_method'
+        : "'fixed'";
+    $principalMonthlyExpr = isset($columnNameIndex['principal_payment_monthly'])
+        ? 'l.principal_payment_monthly'
+        : 'CAST(NULL AS DECIMAL(12,2))';
+
+    $sql = 'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, '
+        . $monthlyInterestExpr . ' AS monthly_interest, '
+        . $calcMethodExpr . ' AS interest_calc_method, '
+        . $principalMonthlyExpr . ' AS principal_payment_monthly, '
+        . 'l.payment_type, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
+        . 'ORDER BY e.name ASC, l.name ASC';
+
+    return dbAll($sql, []);
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $path = is_string($rawPath) && $rawPath !== '' ? $rawPath : '/';
@@ -512,10 +553,7 @@ $routes = [
             }
         }
 
-        $rows = dbAll(
-            'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, l.monthly_interest, l.interest_calc_method, l.principal_payment_monthly, l.payment_type, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
-            []
-        );
+        $rows = checks_fetch_loan_rows_for_checks_page();
         $monthlyRows = [];
         $prepaidRows = [];
         foreach ($rows as $row) {
