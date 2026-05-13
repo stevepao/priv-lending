@@ -21,7 +21,7 @@ function load_dotenv(?string $rootDir = null): void
 
     foreach ($lines as $line) {
         $line = trim($line);
-        if ($line === '' || str_starts_with($line, '#')) {
+        if ($line === '' || (isset($line[0]) && $line[0] === '#')) {
             continue;
         }
 

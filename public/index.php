@@ -13,7 +13,7 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATO
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $path = is_string($rawPath) && $rawPath !== '' ? $rawPath : '/';
-if ($path !== '/' && str_ends_with($path, '/')) {
+if ($path !== '/' && substr($path, -1) === '/') {
     $path = rtrim($path, '/') ?: '/';
 }
 

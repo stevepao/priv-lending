@@ -1,4 +1,4 @@
-Options -Indexes
+# Do not use "Options" here: on many hosts AllowOverride omits Options and Apache returns 500.
 
 <IfModule mod_rewrite.c>
     RewriteEngine On

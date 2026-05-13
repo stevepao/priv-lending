@@ -1,7 +1,7 @@
 # Use only when the site DocumentRoot is this project directory (not recommended).
 # Prefer pointing DocumentRoot at /public so these paths are never web-visible.
 
-Options -Indexes
+# Do not use "Options" here: on many hosts AllowOverride omits Options and Apache returns 500.
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
