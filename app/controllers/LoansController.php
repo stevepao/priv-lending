@@ -279,10 +279,12 @@ final class LoansController
         $fpSel = schema_table_has_column('loans', 'funding_principal_out_posted')
             ? 'funding_principal_out_posted'
             : 'CAST(0 AS UNSIGNED) AS funding_principal_out_posted';
+        $cidx = loan_loans_column_name_index();
+        $closedSel = isset($cidx['closed_date']) ? ', closed_date' : ', CAST(NULL AS DATE) AS closed_date';
         $loan = dbOne(
             'SELECT id, entity_id, name, funding_source, origin_date, maturity_date, payment_type, principal_amount, annual_interest_rate, '
             . loan_sql_select_checks_column_expressions('')
-            . ', prepaid_interest_amount, prepaid_interest_date, ' . $fpSel . ' FROM loans WHERE id = ?',
+            . ', prepaid_interest_amount, prepaid_interest_date, ' . $fpSel . $closedSel . ' FROM loans WHERE id = ?',
             [$id]
         );
         if ($loan === null) {
@@ -317,6 +319,19 @@ final class LoansController
         $chkPre = $ptype === 'prepaid' ? ' checked' : '';
         $hasFundingPostedCol = schema_table_has_column('loans', 'funding_principal_out_posted');
         $fundingPosted = $hasFundingPostedCol && (int) ($loan['funding_principal_out_posted'] ?? 0) === 1;
+        $hasClosedDateCol = isset($cidx['closed_date']);
+        $closedDateVal = '';
+        $loanIsClosed = false;
+        if ($hasClosedDateCol) {
+            $cdRaw = $loan['closed_date'] ?? null;
+            if ($cdRaw !== null && (string) $cdRaw !== '') {
+                $closedDateVal = (string) $cdRaw;
+                $loanIsClosed = true;
+            }
+        }
+        $todayYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
+        $principalZero = loan_principal_balance_zero_for_close($loan, $todayYm);
+        $defaultCloseDate = (new DateTimeImmutable('today'))->format('Y-m-d');
         header('Content-Type: text/html; charset=utf-8');
         render('loans_edit', [
             'title' => $title,
@@ -343,6 +358,11 @@ final class LoansController
             'pdateVal' => $pdateVal,
             'hasFundingPostedCol' => $hasFundingPostedCol,
             'fundingPosted' => $fundingPosted,
+            'hasClosedDateCol' => $hasClosedDateCol,
+            'loanIsClosed' => $loanIsClosed,
+            'closedDateVal' => $closedDateVal,
+            'principalZero' => $principalZero,
+            'defaultCloseDate' => $defaultCloseDate,
         ]);
     }
 
@@ -483,6 +503,37 @@ final class LoansController
         }
 
         $idx = loan_loans_column_name_index();
+
+        $finalClosed = null;
+        $todayYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
+        if (isset($idx['closed_date'])) {
+            $exRow = dbOne('SELECT closed_date AS cd FROM loans WHERE id = ?', [$loanId]);
+            $existingClosedRaw = null;
+            if ($exRow !== null && isset($exRow['cd']) && $exRow['cd'] !== null && (string) $exRow['cd'] !== '') {
+                $existingClosedRaw = (string) $exRow['cd'];
+            }
+            if ($existingClosedRaw !== null) {
+                $parsedExisting = $parseDate($existingClosedRaw);
+                $finalClosed = $parsedExisting !== null ? $parsedExisting : $existingClosedRaw;
+            } elseif (isset($_POST['mark_loan_closed'])) {
+                $cRaw = trim((string) ($_POST['closed_date'] ?? ''));
+                $finalClosed = $parseDate($cRaw);
+                if ($finalClosed === null) {
+                    $redirect($loanId);
+                }
+                $tentative = [
+                    'payment_type' => $paymentType,
+                    'principal_amount' => $principalStr,
+                    'interest_calc_method' => $checksFields['interest_calc_method'],
+                    'principal_payment_monthly' => $checksFields['principal_payment_monthly'],
+                    'origin_date' => $origin,
+                ];
+                if (!loan_principal_balance_zero_for_close($tentative, $todayYm)) {
+                    $redirect($loanId);
+                }
+            }
+        }
+
         $setParts = ['entity_id = ?', 'name = ?', 'principal_amount = ?', 'annual_interest_rate = ?'];
         $updParams = [$entityId, $name, $principalStr, $rateStr];
         if (isset($idx['monthly_interest'])) {
@@ -498,7 +549,12 @@ final class LoansController
             $updParams[] = $checksFields['principal_payment_monthly'];
         }
         $setParts = array_merge($setParts, ['funding_source = ?', 'origin_date = ?', 'maturity_date = ?', 'payment_type = ?', 'prepaid_interest_amount = ?', 'prepaid_interest_date = ?']);
-        $updParams = array_merge($updParams, [$funding, $origin, $maturity, $paymentType, $prepaidAmount, $prepaidDate, $loanId]);
+        $updParams = array_merge($updParams, [$funding, $origin, $maturity, $paymentType, $prepaidAmount, $prepaidDate]);
+        if (isset($idx['closed_date'])) {
+            $setParts[] = 'closed_date = ?';
+            $updParams[] = $finalClosed;
+        }
+        $updParams[] = $loanId;
         $sqlUpd = 'UPDATE loans SET ' . implode(', ', $setParts) . ' WHERE id = ?';
         $pdo = db();
         $pdo->beginTransaction();

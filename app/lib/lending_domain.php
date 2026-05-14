@@ -135,6 +135,45 @@ function loan_remaining_principal_after_paydowns(string $principalAmount, string
 }
 
 /**
+ * True when the loan has no principal balance left for purposes of marking it closed on the edit screen.
+ * Declining-balance interest-only / amortizing: remaining principal at calendar month $asOfYm (Y-m) is <= 0;
+ * otherwise stored principal_amount is compared to zero.
+ *
+ * @param array<string, mixed> $loan
+ */
+function loan_principal_balance_zero_for_close(array $loan, string $asOfYm): bool
+{
+    $ptype = (string) ($loan['payment_type'] ?? '');
+    $principalStr = $loan['principal_amount'] !== null && $loan['principal_amount'] !== '' ? (string) $loan['principal_amount'] : '0.00';
+    $principalStr = checks_normalize_money_2($principalStr);
+    $calcMethod = (string) ($loan['interest_calc_method'] ?? 'fixed');
+    if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
+        $calcMethod = 'fixed';
+    }
+    if ($calcMethod === 'declining_balance' && in_array($ptype, ['interest_only', 'amortizing'], true)) {
+        $origin = (string) ($loan['origin_date'] ?? '');
+        if ($origin === '') {
+            return false;
+        }
+        $mppRaw = $loan['principal_payment_monthly'] ?? null;
+        $mppStr = $mppRaw !== null && $mppRaw !== '' ? (string) $mppRaw : '0.00';
+        $mppStr = checks_normalize_money_2($mppStr);
+        $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $asOfYm);
+        $remainingStr = loan_remaining_principal_after_paydowns($principalStr, $mppStr, $monthsElapsed);
+        if (extension_loaded('bcmath')) {
+            return bccomp($remainingStr, '0', 2) <= 0;
+        }
+
+        return (float) $remainingStr <= 0.0;
+    }
+    if (extension_loaded('bcmath')) {
+        return bccomp($principalStr, '0', 2) <= 0;
+    }
+
+    return (float) $principalStr <= 0.0;
+}
+
+/**
  * One month of interest on declining balance using beginning-of-month principal.
  * annual_interest_rate is stored as percent per year (e.g. 12 = 12%). Equivalent to
  * remaining_principal * ((annual_percent / 100) / 12). Rounded half-up to 2 decimals.
@@ -482,6 +521,8 @@ function checks_selected_month_within_prepaid_window(?string $prepaidInterestDat
  * be on or before that month, maturity (if set) must not end before that month, and status must
  * be active when the status column exists. Loans with a posted monthly check for that month are
  * still returned (checks_month_posted_event_id) so the UI can show Posted.
+ * When closed_date exists: exclude loans for calendar months after the month of closed_date
+ * (the close month remains visible on Checks).
  *
  * @return list<array<string, mixed>>
  */
@@ -490,6 +531,10 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
     $names = loan_loans_column_name_index();
     $statusClause = isset($names['status'])
         ? " AND (l.status IS NULL OR l.status = 'active')"
+        : '';
+
+    $closedClause = isset($names['closed_date'])
+        ? " AND (l.closed_date IS NULL OR DATE_FORMAT(l.closed_date, '%Y-%m') >= ?)"
         : '';
 
     $postedSelect = '';
@@ -502,6 +547,9 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
     }
     $params[] = $selectedYm;
     $params[] = $selectedYm;
+    if ($closedClause !== '') {
+        $params[] = $selectedYm;
+    }
 
     $prepaidReceivedExpr = schema_table_has_column('loans', 'prepaid_interest_received')
         ? 'l.prepaid_interest_received'
@@ -514,6 +562,7 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
         . 'WHERE l.origin_date IS NOT NULL '
         . "AND DATE_FORMAT(l.origin_date, '%Y-%m') <= ? "
         . "AND (l.maturity_date IS NULL OR DATE_FORMAT(l.maturity_date, '%Y-%m') >= ?)"
+        . $closedClause
         . $statusClause
         . ' ORDER BY e.name ASC, l.name ASC';
 

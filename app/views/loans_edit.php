@@ -3,11 +3,14 @@
 <h1 class="text-2xl font-semibold"><?php echo e($title); ?></h1>
 <a class="text-sm text-slate-600 underline" href="/loans">Back to loans</a>
 <?php if ($showInvalid): ?>
-<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Check number formats (use 100000.00 or 100000,00). Optional monthly amounts must be non-negative with at most two decimal places. Posting a funding transaction requires positive principal and migration <code class="text-xs">0008_loans_funding_principal_out_posted.sql</code>.</p>
+<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">The loan was not saved. For interest-only or amortizing: principal must be greater than zero. Annual rate must be greater than zero unless you use <strong>fixed</strong> with <strong>monthly interest</strong> filled in (then annual rate may be blank or zero). Check number formats (use 100000.00 or 100000,00). Optional monthly amounts must be non-negative with at most two decimal places. Posting a funding transaction requires positive principal and migration <code class="text-xs">0008_loans_funding_principal_out_posted.sql</code>. Marking a loan closed requires migration <code class="text-xs">0009_loans_closed_date.sql</code>, a valid close date, and zero principal balance (or declining-balance remaining at zero).</p>
 <?php endif; ?>
 <?php if ($entitiesEmpty): ?>
 <p class="text-sm text-slate-600">No entities yet. <a class="underline" href="/entities/new">Create an entity</a> first.</p>
 <?php else: ?>
+<?php if (!$hasClosedDateCol): ?>
+<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Loan close date (removes the loan from Checks after that month) requires migration <code class="text-xs">0009_loans_closed_date.sql</code>. Run <code class="text-xs">php bin/migrate.php</code>.</p>
+<?php endif; ?>
 <form class="space-y-4 rounded border border-slate-200 bg-white p-4 shadow-sm" method="post" action="/loans/edit">
 <?php echo csrf_field(); ?>
 <input type="hidden" name="id" value="<?php echo e($lid); ?>">
@@ -60,6 +63,19 @@
 <p class="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">Funding transaction (principal_out): Posted</p>
 <?php else: ?>
 <label class="flex items-start gap-2 text-sm text-slate-800"><input class="mt-1 h-4 w-4 rounded border-slate-300" type="checkbox" name="post_funding_principal_out" value="1"> <span><span class="font-medium">Post funding transaction (principal_out) now</span><span class="block text-xs font-normal text-slate-500">Uses current principal, origin date, and funding source; amount is stored negative.</span></span></label>
+<?php endif; ?>
+<?php if ($hasClosedDateCol): ?>
+<?php if ($loanIsClosed): ?>
+<p class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"><span class="font-medium">Loan closed</span> — close date <span class="font-mono"><?php echo e($closedDateVal); ?></span>. It does not appear on the Checks list for calendar months after that date (the close month still appears).</p>
+<?php elseif ($principalZero): ?>
+<fieldset class="space-y-2 rounded border border-slate-200 bg-slate-50 p-3">
+<legend class="text-sm font-medium text-slate-700">Close loan</legend>
+<p class="text-xs text-slate-600">Principal balance is zero. Set a close date so this loan stops appearing on Checks after that calendar month (the month of the close date still appears).</p>
+<label class="flex items-center gap-2 text-sm text-slate-800"><input class="h-4 w-4 rounded border-slate-300" type="checkbox" name="mark_loan_closed" value="1"> <span>Mark loan as closed</span></label>
+<div><label class="mb-1 block text-xs font-medium text-slate-600" for="closed_date">Close date</label>
+<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="closed_date" name="closed_date" type="date" value="<?php echo e($defaultCloseDate); ?>"></div>
+</fieldset>
+<?php endif; ?>
 <?php endif; ?>
 <div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>
 <a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/loans">Cancel</a></div>
