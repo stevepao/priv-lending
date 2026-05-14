@@ -61,6 +61,7 @@ final class CashEventsController
             . 'ORDER BY ce.event_date DESC, ce.id DESC LIMIT 500',
             []
         );
+        $rows = array_reverse($rows);
         header('Content-Type: text/html; charset=utf-8');
         render('cash_events_index', [
             'title' => $title,
