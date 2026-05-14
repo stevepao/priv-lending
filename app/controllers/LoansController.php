@@ -14,10 +14,12 @@ final class LoansController
         $icmSel = isset($idx['interest_calc_method'])
             ? 'l.interest_calc_method'
             : "'fixed' AS interest_calc_method";
+        $balSub = loan_sql_cash_principal_balance_subquery();
         $rows = dbAll(
-            'SELECT l.id, l.name, l.funding_source, l.origin_date, l.maturity_date, l.payment_type, l.principal_amount, l.annual_interest_rate, '
+            'SELECT l.id, l.name, l.funding_source, l.origin_date, l.payment_type, l.principal_amount, l.annual_interest_rate, '
             . $monthlySel . ', ' . $icmSel
-            . ', l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
+            . ', l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name, '
+            . $balSub . ' AS current_balance_raw FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
             []
         );
 
@@ -45,8 +47,10 @@ final class LoansController
             $loanName = (string) ($row['name'] ?? '');
             $funding = (string) ($row['funding_source'] ?? '');
             $origin = (string) ($row['origin_date'] ?? '');
-            $maturity = $row['maturity_date'] !== null && $row['maturity_date'] !== '' ? (string) $row['maturity_date'] : '';
             $ptype = (string) ($row['payment_type'] ?? '');
+            $balRaw = $row['current_balance_raw'] ?? null;
+            $balStr = $balRaw !== null && $balRaw !== '' ? (string) $balRaw : '0';
+            $currentBalance = checks_normalize_money_2($balStr);
             $principal = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '';
             $rate = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '';
             $monthlyIntStr = isset($row['monthly_interest']) && $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
@@ -80,7 +84,7 @@ final class LoansController
                 'loanName' => $loanName,
                 'funding' => $funding,
                 'origin' => $origin,
-                'maturity' => $maturity,
+                'currentBalance' => $currentBalance,
                 'principal' => $principal,
                 'principalTitle' => $principalTitle,
                 'rateIsImplied' => $impliedAnnual !== null,
@@ -329,8 +333,7 @@ final class LoansController
                 $loanIsClosed = true;
             }
         }
-        $todayYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
-        $principalZero = loan_principal_balance_zero_for_close($loan, $todayYm);
+        $ledgerBalanceZero = loan_cash_principal_ledger_balance_is_zero($id);
         $defaultCloseDate = (new DateTimeImmutable('today'))->format('Y-m-d');
         header('Content-Type: text/html; charset=utf-8');
         render('loans_edit', [
@@ -361,7 +364,7 @@ final class LoansController
             'hasClosedDateCol' => $hasClosedDateCol,
             'loanIsClosed' => $loanIsClosed,
             'closedDateVal' => $closedDateVal,
-            'principalZero' => $principalZero,
+            'ledgerBalanceZero' => $ledgerBalanceZero,
             'defaultCloseDate' => $defaultCloseDate,
         ]);
     }
@@ -505,7 +508,6 @@ final class LoansController
         $idx = loan_loans_column_name_index();
 
         $finalClosed = null;
-        $todayYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
         if (isset($idx['closed_date'])) {
             $exRow = dbOne('SELECT closed_date AS cd FROM loans WHERE id = ?', [$loanId]);
             $existingClosedRaw = null;
@@ -521,14 +523,7 @@ final class LoansController
                 if ($finalClosed === null) {
                     $redirect($loanId);
                 }
-                $tentative = [
-                    'payment_type' => $paymentType,
-                    'principal_amount' => $principalStr,
-                    'interest_calc_method' => $checksFields['interest_calc_method'],
-                    'principal_payment_monthly' => $checksFields['principal_payment_monthly'],
-                    'origin_date' => $origin,
-                ];
-                if (!loan_principal_balance_zero_for_close($tentative, $todayYm)) {
+                if (!loan_cash_principal_ledger_balance_is_zero($loanId)) {
                     $redirect($loanId);
                 }
             }

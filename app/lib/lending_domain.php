@@ -135,45 +135,6 @@ function loan_remaining_principal_after_paydowns(string $principalAmount, string
 }
 
 /**
- * True when the loan has no principal balance left for purposes of marking it closed on the edit screen.
- * Declining-balance interest-only / amortizing: remaining principal at calendar month $asOfYm (Y-m) is <= 0;
- * otherwise stored principal_amount is compared to zero.
- *
- * @param array<string, mixed> $loan
- */
-function loan_principal_balance_zero_for_close(array $loan, string $asOfYm): bool
-{
-    $ptype = (string) ($loan['payment_type'] ?? '');
-    $principalStr = $loan['principal_amount'] !== null && $loan['principal_amount'] !== '' ? (string) $loan['principal_amount'] : '0.00';
-    $principalStr = checks_normalize_money_2($principalStr);
-    $calcMethod = (string) ($loan['interest_calc_method'] ?? 'fixed');
-    if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
-        $calcMethod = 'fixed';
-    }
-    if ($calcMethod === 'declining_balance' && in_array($ptype, ['interest_only', 'amortizing'], true)) {
-        $origin = (string) ($loan['origin_date'] ?? '');
-        if ($origin === '') {
-            return false;
-        }
-        $mppRaw = $loan['principal_payment_monthly'] ?? null;
-        $mppStr = $mppRaw !== null && $mppRaw !== '' ? (string) $mppRaw : '0.00';
-        $mppStr = checks_normalize_money_2($mppStr);
-        $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $asOfYm);
-        $remainingStr = loan_remaining_principal_after_paydowns($principalStr, $mppStr, $monthsElapsed);
-        if (extension_loaded('bcmath')) {
-            return bccomp($remainingStr, '0', 2) <= 0;
-        }
-
-        return (float) $remainingStr <= 0.0;
-    }
-    if (extension_loaded('bcmath')) {
-        return bccomp($principalStr, '0', 2) <= 0;
-    }
-
-    return (float) $principalStr <= 0.0;
-}
-
-/**
  * One month of interest on declining balance using beginning-of-month principal.
  * annual_interest_rate is stored as percent per year (e.g. 12 = 12%). Equivalent to
  * remaining_principal * ((annual_percent / 100) / 12). Rounded half-up to 2 decimals.
@@ -400,6 +361,41 @@ function loan_principal_and_annual_for_prepaid_save(string $principalRaw, string
     }
 
     return ['principalStr' => $principalStr, 'rateStr' => loan_format_annual_rate_db_string($r)];
+}
+
+/**
+ * SQL scalar subquery (correlated on outer alias `l.id`) for principal ledger balance from cash_events.
+ * Sums amount for categories principal_in and principal_out only (funding stored negative, repayments positive;
+ * net zero when fully repaid).
+ */
+function loan_sql_cash_principal_balance_subquery(): string
+{
+    return "(SELECT COALESCE(SUM(ce.amount), 0) FROM cash_events ce WHERE ce.loan_id = l.id AND ce.category IN ('principal_in', 'principal_out'))";
+}
+
+/**
+ * Sum of cash_events.amount for principal_in and principal_out for one loan (same as loans list; 2 dp).
+ */
+function loan_cash_principal_ledger_balance_raw(int $loanId): string
+{
+    $row = dbOne(
+        "SELECT COALESCE(SUM(amount), 0) AS bal FROM cash_events WHERE loan_id = ? AND category IN ('principal_in', 'principal_out')",
+        [$loanId]
+    );
+    $raw = is_array($row) ? (string) ($row['bal'] ?? '0') : '0';
+
+    return checks_normalize_money_2($raw);
+}
+
+/** True when principal_in + principal_out amounts net to exactly zero for the loan. */
+function loan_cash_principal_ledger_balance_is_zero(int $loanId): bool
+{
+    $s = loan_cash_principal_ledger_balance_raw($loanId);
+    if (extension_loaded('bcmath')) {
+        return bccomp($s, '0', 2) === 0;
+    }
+
+    return (float) $s === 0.0;
 }
 
 /**

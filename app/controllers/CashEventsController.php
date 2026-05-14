@@ -33,12 +33,19 @@ final class CashEventsController
             'SELECT l.id, l.name, e.name AS entity_name FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
             []
         );
-        $today = (new DateTimeImmutable('today'))->format('Y-m-d');
+        $eventDateVal = (new DateTimeImmutable('today'))->format('Y-m-d');
+        $rawEd = isset($_GET['event_date']) ? trim((string) $_GET['event_date']) : '';
+        if ($rawEd !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawEd) === 1) {
+            $parsedPrefill = DateTimeImmutable::createFromFormat('Y-m-d', $rawEd);
+            if ($parsedPrefill instanceof DateTimeImmutable && $parsedPrefill->format('Y-m-d') === $rawEd) {
+                $eventDateVal = $rawEd;
+            }
+        }
         header('Content-Type: text/html; charset=utf-8');
         render('cash_events_new', [
             'title' => $title,
             'loans' => $loans,
-            'today' => $today,
+            'eventDateVal' => $eventDateVal,
             'showInvalid' => isset($_GET['invalid']),
         ]);
     }
@@ -47,48 +54,51 @@ final class CashEventsController
     {
         csrf_verify_or_die();
 
-        $loanIdRaw = trim((string) ($_POST['loan_id'] ?? ''));
-        $loanId = $loanIdRaw === '' ? null : (int) $loanIdRaw;
-        if ($loanId !== null && $loanId < 1) {
-            header('Location: /cash-events/new?invalid=1');
+        $redirectInvalid = static function (?string $validEventDateYmd): void {
+            $q = ['invalid' => '1'];
+            if ($validEventDateYmd !== null && $validEventDateYmd !== '') {
+                $q['event_date'] = $validEventDateYmd;
+            }
+            header('Location: /cash-events/new?' . http_build_query($q));
             exit;
-        }
+        };
 
         $eventDateRaw = trim((string) ($_POST['event_date'] ?? ''));
         $parsedEv = DateTimeImmutable::createFromFormat('Y-m-d', $eventDateRaw);
         if (!$parsedEv instanceof DateTimeImmutable || $parsedEv->format('Y-m-d') !== $eventDateRaw) {
-            header('Location: /cash-events/new?invalid=1');
-            exit;
+            $redirectInvalid(null);
+        }
+        $validEventDateForRedirect = $eventDateRaw;
+
+        $loanIdRaw = trim((string) ($_POST['loan_id'] ?? ''));
+        $loanId = $loanIdRaw === '' ? null : (int) $loanIdRaw;
+        if ($loanId !== null && $loanId < 1) {
+            $redirectInvalid($validEventDateForRedirect);
         }
 
         $amountRaw = loan_normalize_decimal_input((string) ($_POST['amount'] ?? ''));
         $amountTrim = trim($amountRaw);
         if ($amountTrim === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $amountTrim)) {
-            header('Location: /cash-events/new?invalid=1');
-            exit;
+            $redirectInvalid($validEventDateForRedirect);
         }
         if (extension_loaded('bcmath')) {
             if (bccomp($amountTrim, '0', 2) !== 1) {
-                header('Location: /cash-events/new?invalid=1');
-                exit;
+                $redirectInvalid($validEventDateForRedirect);
             }
         } elseif ((float) $amountTrim <= 0.0) {
-            header('Location: /cash-events/new?invalid=1');
-            exit;
+            $redirectInvalid($validEventDateForRedirect);
         }
         $amountStr = checks_normalize_money_2($amountTrim);
 
         $category = trim((string) ($_POST['category'] ?? ''));
         if (!in_array($category, ['interest', 'principal_in', 'loc_interest', 'principal_out'], true)) {
-            header('Location: /cash-events/new?invalid=1');
-            exit;
+            $redirectInvalid($validEventDateForRedirect);
         }
 
         $depRaw = trim((string) ($_POST['deposit_to'] ?? ''));
         $depositTo = $depRaw === '' ? null : $depRaw;
         if ($depositTo !== null && !in_array($depositTo, ['JPM', 'NTRS'], true)) {
-            header('Location: /cash-events/new?invalid=1');
-            exit;
+            $redirectInvalid($validEventDateForRedirect);
         }
 
         $notesRaw = trim((string) ($_POST['notes'] ?? ''));
@@ -97,8 +107,7 @@ final class CashEventsController
         if ($loanId !== null) {
             $exists = dbOne('SELECT id FROM loans WHERE id = ?', [$loanId]);
             if ($exists === null) {
-                header('Location: /cash-events/new?invalid=1');
-                exit;
+                $redirectInvalid($validEventDateForRedirect);
             }
         }
 

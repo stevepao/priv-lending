@@ -57,6 +57,10 @@ final class BankController
         $notesPrin = 'Bank statement ' . $stmtDateRaw . ' (principal_out)';
 
         $pdo = db();
+        $insertPrincipalOut = extension_loaded('bcmath')
+            ? bccomp($prinPos, '0', 2) === 1
+            : (float) $prinPos > 0.0;
+
         $pdo->beginTransaction();
         try {
             if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
@@ -64,13 +68,17 @@ final class BankController
                     'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, NULL, ?, ?, ?, ?, ?)'
                 );
                 $ins->execute([null, $stmtDateRaw, $negLoc, 'loc_interest', $bank, $notesLoc]);
-                $ins->execute([null, $stmtDateRaw, $negPrin, 'principal_out', $bank, $notesPrin]);
+                if ($insertPrincipalOut) {
+                    $ins->execute([null, $stmtDateRaw, $negPrin, 'principal_out', $bank, $notesPrin]);
+                }
             } else {
                 $ins = $pdo->prepare(
                     'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
                 );
                 $ins->execute([null, $stmtDateRaw, $negLoc, 'loc_interest', $bank, $notesLoc]);
-                $ins->execute([null, $stmtDateRaw, $negPrin, 'principal_out', $bank, $notesPrin]);
+                if ($insertPrincipalOut) {
+                    $ins->execute([null, $stmtDateRaw, $negPrin, 'principal_out', $bank, $notesPrin]);
+                }
             }
             $pdo->commit();
         } catch (Throwable $e) {

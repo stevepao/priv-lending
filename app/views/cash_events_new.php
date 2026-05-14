@@ -20,7 +20,7 @@
 <?php endforeach; ?>
 </select></div>
 <div><label class="mb-1 block text-sm font-medium text-slate-700" for="event_date">Event date</label>
-<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="event_date" name="event_date" type="date" required value="<?php echo e($today); ?>"></div>
+<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="event_date" name="event_date" type="date" required value="<?php echo e($eventDateVal); ?>"></div>
 <div><label class="mb-1 block text-sm font-medium text-slate-700" for="amount">Amount</label>
 <input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="amount" name="amount" type="text" inputmode="decimal" required placeholder="0.00"></div>
 <div><label class="mb-1 block text-sm font-medium text-slate-700" for="category">Category</label>
