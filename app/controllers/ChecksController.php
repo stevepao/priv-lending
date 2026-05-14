@@ -27,13 +27,19 @@ final class ChecksController
                 if (checks_selected_month_within_prepaid_window($pDateStr, $selectedYm)) {
                     $prepaidRows[] = $row;
                 } else {
-                    $monthlyRows[] = $row;
+                    $origin = (string) ($row['origin_date'] ?? '');
+                    if (checks_selected_month_is_after_loan_origin_month($origin, $selectedYm)) {
+                        $monthlyRows[] = $row;
+                    }
                 }
 
                 continue;
             }
             if (in_array($ptype, ['interest_only', 'amortizing'], true)) {
-                $monthlyRows[] = $row;
+                $origin = (string) ($row['origin_date'] ?? '');
+                if (checks_selected_month_is_after_loan_origin_month($origin, $selectedYm)) {
+                    $monthlyRows[] = $row;
+                }
             }
         }
 
@@ -255,10 +261,16 @@ final class ChecksController
                 if (checks_selected_month_within_prepaid_window($pDateStr, $selectedYm)) {
                     $eligiblePrepaidById[$lid] = $row;
                 } else {
-                    $eligibleMonthlyById[$lid] = $row;
+                    $origin = (string) ($row['origin_date'] ?? '');
+                    if (checks_selected_month_is_after_loan_origin_month($origin, $selectedYm)) {
+                        $eligibleMonthlyById[$lid] = $row;
+                    }
                 }
             } elseif (in_array($ptype, ['interest_only', 'amortizing'], true)) {
-                $eligibleMonthlyById[$lid] = $row;
+                $origin = (string) ($row['origin_date'] ?? '');
+                if (checks_selected_month_is_after_loan_origin_month($origin, $selectedYm)) {
+                    $eligibleMonthlyById[$lid] = $row;
+                }
             }
         }
 

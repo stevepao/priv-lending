@@ -532,11 +532,36 @@ function checks_selected_month_within_prepaid_window(?string $prepaidInterestDat
 }
 
 /**
+ * True when the selected calendar month (Y-m) is strictly after the calendar month of the loan's origin date.
+ * Monthly interest/principal checks are due starting the month after origin; the origin month has no monthly check row.
+ *
+ * Prepaid lump posting uses {@see checks_selected_month_within_prepaid_window} instead and may include the origin month.
+ */
+function checks_selected_month_is_after_loan_origin_month(string $originYmd, string $selectedYm): bool
+{
+    $originYmd = trim($originYmd);
+    if ($originYmd === '' || !preg_match('/^\d{4}-\d{2}$/', $selectedYm)) {
+        return false;
+    }
+    if (strlen($originYmd) >= 7 && preg_match('/^\d{4}-\d{2}/', $originYmd) === 1) {
+        $originYm = substr($originYmd, 0, 7);
+    } else {
+        $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $originYmd);
+        if (!$parsed instanceof DateTimeImmutable || $parsed->format('Y-m-d') !== $originYmd) {
+            return false;
+        }
+        $originYm = $parsed->format('Y-m');
+    }
+
+    return strcmp($selectedYm, $originYm) > 0;
+}
+
+/**
  * Loans for GET /checks: only reference optional columns when they exist so production DBs
  * that predate interest_calc_method (or other checklist fields) do not error.
  *
  * Rows are limited to loans active for the calendar month $selectedYm (Y-m): origin month must
- * be on or before that month, maturity (if set) must not end before that month, and status must
+ * be on or before that month (so prepaid-window loans still load in the origin month), maturity (if set) must not end before that month, and status must
  * be active when the status column exists. Loans with a posted monthly check for that month are
  * still returned (checks_month_posted_event_id) so the UI can show Posted.
  * When closed_date exists: exclude loans for calendar months after the month of closed_date
@@ -599,6 +624,9 @@ function checks_expected_payment_total_for_row(array $row, string $selectedYm): 
     if ($origin === '') {
         return null;
     }
+    if (!checks_selected_month_is_after_loan_origin_month($origin, $selectedYm)) {
+        return null;
+    }
     $principalStr = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '0.00';
     $annualStr = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '0.000';
     $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
@@ -654,6 +682,9 @@ function checks_expected_payment_interest_principal_split_for_row(array $row, st
 {
     $origin = (string) ($row['origin_date'] ?? '');
     if ($origin === '') {
+        return null;
+    }
+    if (!checks_selected_month_is_after_loan_origin_month($origin, $selectedYm)) {
         return null;
     }
     $principalAmountStr = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '0.00';
