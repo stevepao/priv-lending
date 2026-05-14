@@ -264,4 +264,20 @@ final class CashEventsController
         header('Location: /cash-events');
         exit;
     }
+
+    public function destroy(): void
+    {
+        csrf_verify_or_die();
+
+        $id = (int) ($_POST['id'] ?? 0);
+        if ($id < 1) {
+            header('Location: /cash-events');
+            exit;
+        }
+
+        $stmt = db()->prepare('DELETE FROM cash_events WHERE id = ?');
+        $stmt->execute([$id]);
+        header('Location: /cash-events');
+        exit;
+    }
 }

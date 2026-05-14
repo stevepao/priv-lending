@@ -43,5 +43,12 @@
 <textarea class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="notes" name="notes" rows="3"><?php echo e($notesVal); ?></textarea></div>
 <div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>
 <a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/cash-events">Cancel</a></div>
-</form></div>
+</form>
+<form class="mt-6 rounded border border-red-200 bg-red-50/40 p-4 shadow-sm" method="post" action="/cash-events/delete" onsubmit="return confirm('Delete this cash event from the ledger? This cannot be undone.');">
+<?php echo csrf_field(); ?>
+<input type="hidden" name="id" value="<?php echo e((string) $eventId); ?>">
+<p class="mb-3 text-sm text-slate-700">Temporary debugging: remove this row from the database.</p>
+<button class="rounded border border-red-400 bg-white px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-50" type="submit">Delete cash event</button>
+</form>
+</div>
 <?php require __DIR__ . '/partials/layout_foot.php'; ?>

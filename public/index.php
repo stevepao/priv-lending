@@ -120,6 +120,9 @@ $routes = [
     'POST /cash-events/edit' => static function (): void {
         (new CashEventsController())->update();
     },
+    'POST /cash-events/delete' => static function (): void {
+        (new CashEventsController())->destroy();
+    },
     'GET /bank' => static function (): void {
         (new BankController())->showForm();
     },
