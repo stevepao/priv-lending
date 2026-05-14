@@ -7,7 +7,7 @@
 <p class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">Linked check month: <code class="text-xs"><?php echo e($scmVal); ?></code> (from Checks posting).</p>
 <?php endif; ?>
 <?php if ($showInvalid): ?>
-<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Please fix the highlighted fields and try again.</p>
+<p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Please correct the fields below. <strong>Interest</strong> and <strong>principal in</strong> amounts must be positive. <strong>LOC interest</strong> and <strong>principal out</strong> amounts must be negative (same convention as the Bank screen and loan funding).</p>
 <?php endif; ?>
 <form class="space-y-4 rounded border border-slate-200 bg-white p-4 shadow-sm" method="post" action="/cash-events/edit">
 <?php echo csrf_field(); ?>

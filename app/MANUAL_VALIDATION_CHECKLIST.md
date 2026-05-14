@@ -38,7 +38,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 17. **GET /cash-events** — Table includes **Actions** with **Edit** per row; empty state colspan matches column count.
 18. **GET /cash-events/edit?id=…** — Loads the event; form matches **New cash event** fields with current values; optional banner when `scheduled_check_ym` is set (migration applied); invalid query shows same amber message as new.
-19. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym, category)`.
+19. **POST /cash-events/edit** — Same validation rules as **POST /cash-events/new**; **LOC interest** and **principal out** amounts must be **negative**; **interest** and **principal in** must be **positive**. Successful save updates the row (leaves `scheduled_check_ym` unchanged); redirects to **GET /cash-events**; changing loan on a posted event fails validation if it would duplicate `(loan_id, scheduled_check_ym, category)`.
 20. **GET /cash-events/new** and **POST /cash-events/new** — Unchanged.
 
 ## Bank (`public/index.php`)

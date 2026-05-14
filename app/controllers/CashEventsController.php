@@ -4,6 +4,48 @@ declare(strict_types=1);
 
 final class CashEventsController
 {
+    /**
+     * Validate and normalize posted amount for a cash event. LOC interest and principal out are stored negative; interest and principal in are positive.
+     *
+     * @return string|false normalized to 2 decimal places, or false if invalid
+     */
+    private static function cash_event_amount_for_category(string $category, string $postAmount): string|false
+    {
+        if (!in_array($category, ['interest', 'principal_in', 'loc_interest', 'principal_out'], true)) {
+            return false;
+        }
+        $raw = loan_normalize_decimal_input($postAmount);
+        $t = trim($raw);
+        $outflow = in_array($category, ['loc_interest', 'principal_out'], true);
+        if ($outflow) {
+            if ($t === '' || !preg_match('/^-?\d{1,10}(\.\d{1,2})?$/', $t)) {
+                return false;
+            }
+            $norm = checks_normalize_money_2($t);
+            if (extension_loaded('bcmath')) {
+                if (bccomp($norm, '0', 2) >= 0) {
+                    return false;
+                }
+            } elseif ((float) $norm >= 0.0) {
+                return false;
+            }
+
+            return $norm;
+        }
+        if ($t === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $t)) {
+            return false;
+        }
+        if (extension_loaded('bcmath')) {
+            if (bccomp($t, '0', 2) !== 1) {
+                return false;
+            }
+        } elseif ((float) $t <= 0.0) {
+            return false;
+        }
+
+        return checks_normalize_money_2($t);
+    }
+
     public function index(): void
     {
         $title = 'Cash events';
@@ -76,22 +118,13 @@ final class CashEventsController
             $redirectInvalid($validEventDateForRedirect);
         }
 
-        $amountRaw = loan_normalize_decimal_input((string) ($_POST['amount'] ?? ''));
-        $amountTrim = trim($amountRaw);
-        if ($amountTrim === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $amountTrim)) {
-            $redirectInvalid($validEventDateForRedirect);
-        }
-        if (extension_loaded('bcmath')) {
-            if (bccomp($amountTrim, '0', 2) !== 1) {
-                $redirectInvalid($validEventDateForRedirect);
-            }
-        } elseif ((float) $amountTrim <= 0.0) {
-            $redirectInvalid($validEventDateForRedirect);
-        }
-        $amountStr = checks_normalize_money_2($amountTrim);
-
         $category = trim((string) ($_POST['category'] ?? ''));
         if (!in_array($category, ['interest', 'principal_in', 'loc_interest', 'principal_out'], true)) {
+            $redirectInvalid($validEventDateForRedirect);
+        }
+
+        $amountStr = self::cash_event_amount_for_category($category, (string) ($_POST['amount'] ?? ''));
+        if ($amountStr === false) {
             $redirectInvalid($validEventDateForRedirect);
         }
 
@@ -217,22 +250,13 @@ final class CashEventsController
             $redirectInvalid($id);
         }
 
-        $amountRaw = loan_normalize_decimal_input((string) ($_POST['amount'] ?? ''));
-        $amountTrim = trim($amountRaw);
-        if ($amountTrim === '' || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $amountTrim)) {
-            $redirectInvalid($id);
-        }
-        if (extension_loaded('bcmath')) {
-            if (bccomp($amountTrim, '0', 2) !== 1) {
-                $redirectInvalid($id);
-            }
-        } elseif ((float) $amountTrim <= 0.0) {
-            $redirectInvalid($id);
-        }
-        $amountStr = checks_normalize_money_2($amountTrim);
-
         $category = trim((string) ($_POST['category'] ?? ''));
         if (!in_array($category, ['interest', 'principal_in', 'loc_interest', 'principal_out'], true)) {
+            $redirectInvalid($id);
+        }
+
+        $amountStr = self::cash_event_amount_for_category($category, (string) ($_POST['amount'] ?? ''));
+        if ($amountStr === false) {
             $redirectInvalid($id);
         }
 
