@@ -25,7 +25,7 @@ $linkClass = static function (bool $on): string {
 <header class="mb-8 border-b border-slate-200 pb-4">
 <div class="mx-auto flex max-w-6xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 <div class="flex shrink-0 items-center gap-3">
-<a href="/" class="text-lg font-semibold tracking-tight text-slate-900 hover:text-slate-700">Priv lending</a>
+<a href="/" class="text-lg font-semibold tracking-tight text-slate-900 hover:text-slate-700">Private Lending</a>
 </div>
 <nav class="flex flex-wrap items-center gap-1" aria-label="Main navigation">
 <a class="<?php echo e($linkClass($active($path, '/'))); ?>" href="/">Dashboard</a>

@@ -26,7 +26,7 @@
 <input type="hidden" name="month" value="<?php echo e($selectedYm); ?>">
 <div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
 <table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>
-<th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Method</th>
+<th class="px-3 py-2 font-medium">Funding source</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Method</th>
 <th class="px-3 py-2 font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Post</th><th class="px-3 py-2 font-medium">Status</th>
 </tr></thead><tbody>
 <?php if ($monthlyRowsEmpty): ?>
@@ -34,7 +34,7 @@
 <?php else: ?>
 <?php foreach ($monthlyDisplayRows as $mr): ?>
 <tr class="border-t border-slate-100">
-<td class="px-3 py-2"><?php echo e($mr['entityName']); ?></td>
+<td class="px-3 py-2"><?php echo e($mr['fundingSource']); ?></td>
 <td class="px-3 py-2"><?php echo e($mr['loanName']); ?></td>
 <td class="px-3 py-2"><?php echo e($mr['calcMethod']); ?></td>
 <td class="px-3 py-2"><?php echo $mr['expectedCellHtml']; ?></td>
@@ -52,7 +52,7 @@
 <p class="text-xs text-slate-600">Shown for each calendar month from the loan’s <strong>origin</strong> through the <strong>prepaid-through</strong> month (<code class="text-xs">prepaid_interest_date</code>). Post the lump prepaid interest once using the cash event date above; after posting, the row shows <strong>Posted</strong> (no checkbox) for every month in that range.</p>
 <div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
 <table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>
-<th class="px-3 py-2 font-medium">Entity</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Prepaid amount</th>
+<th class="px-3 py-2 font-medium">Funding source</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Prepaid amount</th>
 <th class="px-3 py-2 font-medium">Post</th><th class="px-3 py-2 font-medium">Status</th>
 </tr></thead><tbody>
 <?php if ($prepaidRowsEmpty): ?>
@@ -60,7 +60,7 @@
 <?php else: ?>
 <?php foreach ($prepaidDisplayRows as $pr): ?>
 <tr class="border-t border-slate-100">
-<td class="px-3 py-2"><?php echo e($pr['entityName']); ?></td>
+<td class="px-3 py-2"><?php echo e($pr['fundingSource']); ?></td>
 <td class="px-3 py-2"><?php echo e($pr['loanName']); ?></td>
 <td class="px-3 py-2 font-medium"><?php echo e($pr['pAmtDisp']); ?></td>
 <td class="px-3 py-2"><?php echo $pr['postCell']; ?></td>

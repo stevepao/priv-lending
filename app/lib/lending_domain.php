@@ -576,7 +576,7 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
     $sql = 'SELECT l.id, l.name, l.origin_date, l.principal_amount, l.annual_interest_rate, '
         . loan_sql_select_checks_column_expressions('l.')
         . ', l.payment_type, l.prepaid_interest_amount, l.prepaid_interest_date, '
-        . $prepaidReceivedExpr . ', l.funding_source, e.name AS entity_name' . $postedSelect . ' FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
+        . $prepaidReceivedExpr . ', l.funding_source' . $postedSelect . ' FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
         . 'WHERE l.origin_date IS NOT NULL '
         . "AND DATE_FORMAT(l.origin_date, '%Y-%m') <= ? "
         . "AND (l.maturity_date IS NULL OR DATE_FORMAT(l.maturity_date, '%Y-%m') >= ?)"

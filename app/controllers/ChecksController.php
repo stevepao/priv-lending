@@ -6,7 +6,7 @@ final class ChecksController
 {
     public function index(): void
     {
-        $title = 'Interest checks';
+        $title = 'Monthly Check Batches';
         $monthParam = $_GET['month'] ?? '';
         $selectedYm = (new DateTimeImmutable('first day of this month'))->format('Y-m');
         if (is_string($monthParam) && preg_match('/^\d{4}-\d{2}$/', $monthParam)) {
@@ -68,14 +68,15 @@ final class ChecksController
     /**
      * @param list<array<string, mixed>> $monthlyRows
      *
-     * @return list<array{entityName: string, loanName: string, calcMethod: string, expectedCellHtml: string, postCell: string, statusCell: string}>
+     * @return list<array{fundingSource: string, loanName: string, calcMethod: string, expectedCellHtml: string, postCell: string, statusCell: string}>
      */
     private function buildMonthlyDisplayRows(array $monthlyRows, string $selectedYm): array
     {
         $out = [];
         foreach ($monthlyRows as $row) {
             $loanId = (int) ($row['id'] ?? 0);
-            $entityName = (string) ($row['entity_name'] ?? '');
+            $fundingSrc = checks_funding_source_for_row($row);
+            $fundingSource = $fundingSrc !== null ? $fundingSrc : '—';
             $loanName = (string) ($row['name'] ?? '');
             $origin = (string) ($row['origin_date'] ?? '');
             $principalStr = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '0.00';
@@ -135,7 +136,7 @@ final class ChecksController
             }
 
             $out[] = [
-                'entityName' => $entityName,
+                'fundingSource' => $fundingSource,
                 'loanName' => $loanName,
                 'calcMethod' => $calcMethod,
                 'expectedCellHtml' => $expectedCellHtml,
@@ -150,14 +151,15 @@ final class ChecksController
     /**
      * @param list<array<string, mixed>> $prepaidRows
      *
-     * @return list<array{entityName: string, loanName: string, pAmtDisp: string, postCell: string, statusCell: string}>
+     * @return list<array{fundingSource: string, loanName: string, pAmtDisp: string, postCell: string, statusCell: string}>
      */
     private function buildPrepaidDisplayRows(array $prepaidRows): array
     {
         $out = [];
         foreach ($prepaidRows as $row) {
             $loanId = (int) ($row['id'] ?? 0);
-            $entityName = (string) ($row['entity_name'] ?? '');
+            $fundingSrc = checks_funding_source_for_row($row);
+            $fundingSource = $fundingSrc !== null ? $fundingSrc : '—';
             $loanName = (string) ($row['name'] ?? '');
             $pAmt = checks_prepaid_interest_amount_db_string($row);
             $pAmtDisp = $pAmt !== null ? $pAmt : '—';
@@ -177,7 +179,7 @@ final class ChecksController
             }
 
             $out[] = [
-                'entityName' => $entityName,
+                'fundingSource' => $fundingSource,
                 'loanName' => $loanName,
                 'pAmtDisp' => $pAmtDisp,
                 'postCell' => $postCell,
