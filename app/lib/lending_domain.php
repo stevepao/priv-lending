@@ -398,6 +398,28 @@ function loan_cash_principal_ledger_balance_is_zero(int $loanId): bool
     return (float) $s === 0.0;
 }
 
+/** True when the loan has at least one cash event with category principal_out. */
+function loan_cash_events_has_principal_out_for_loan(int $loanId): bool
+{
+    $row = dbOne(
+        'SELECT 1 AS ok FROM cash_events WHERE loan_id = ? AND category = ? LIMIT 1',
+        [$loanId, 'principal_out']
+    );
+
+    return $row !== null;
+}
+
+/**
+ * True when the loan may be marked closed from the edit screen: net principal ledger is zero
+ * and there is at least one principal_out entry (funding or bank draw), so closure is tied to
+ * real principal movement, not only offsetting principal_in rows.
+ */
+function loan_eligible_to_mark_closed_from_ledger(int $loanId): bool
+{
+    return loan_cash_principal_ledger_balance_is_zero($loanId)
+        && loan_cash_events_has_principal_out_for_loan($loanId);
+}
+
 /**
  * Whether the current database has a column (cached per request).
  */

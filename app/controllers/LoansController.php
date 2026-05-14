@@ -333,7 +333,7 @@ final class LoansController
                 $loanIsClosed = true;
             }
         }
-        $ledgerBalanceZero = loan_cash_principal_ledger_balance_is_zero($id);
+        $canMarkLoanClosed = loan_eligible_to_mark_closed_from_ledger($id);
         $defaultCloseDate = (new DateTimeImmutable('today'))->format('Y-m-d');
         header('Content-Type: text/html; charset=utf-8');
         render('loans_edit', [
@@ -364,7 +364,7 @@ final class LoansController
             'hasClosedDateCol' => $hasClosedDateCol,
             'loanIsClosed' => $loanIsClosed,
             'closedDateVal' => $closedDateVal,
-            'ledgerBalanceZero' => $ledgerBalanceZero,
+            'canMarkLoanClosed' => $canMarkLoanClosed,
             'defaultCloseDate' => $defaultCloseDate,
         ]);
     }
@@ -523,7 +523,7 @@ final class LoansController
                 if ($finalClosed === null) {
                     $redirect($loanId);
                 }
-                if (!loan_cash_principal_ledger_balance_is_zero($loanId)) {
+                if (!loan_eligible_to_mark_closed_from_ledger($loanId)) {
                     $redirect($loanId);
                 }
             }
