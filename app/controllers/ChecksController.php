@@ -43,8 +43,12 @@ final class ChecksController
             }
         }
 
-        $monthlyDisplayRows = $this->buildMonthlyDisplayRows($monthlyRows, $selectedYm);
-        $prepaidDisplayRows = $this->buildPrepaidDisplayRows($prepaidRows);
+        $monthlyDisplayRows = $this->sortChecksDisplayRowsByFundingThenLoan(
+            $this->buildMonthlyDisplayRows($monthlyRows, $selectedYm)
+        );
+        $prepaidDisplayRows = $this->sortChecksDisplayRowsByFundingThenLoan(
+            $this->buildPrepaidDisplayRows($prepaidRows)
+        );
 
         $today = (new DateTimeImmutable('today'))->format('Y-m-d');
         $showScheduledCheckMigrationBanner = !schema_table_has_column('cash_events', 'scheduled_check_ym');
@@ -69,6 +73,37 @@ final class ChecksController
             'postedSuccess' => $postedSuccess,
             'postedFailure' => $postedFailure,
         ]);
+    }
+
+    /**
+     * @param list<array{fundingSource: string, loanName: string}> $rows
+     *
+     * @return list<array{fundingSource: string, loanName: string}>
+     */
+    private function sortChecksDisplayRowsByFundingThenLoan(array $rows): array
+    {
+        usort($rows, static function (array $a, array $b): int {
+            $byFunding = strcasecmp($a['fundingSource'], $b['fundingSource']);
+            if ($byFunding !== 0) {
+                return $byFunding;
+            }
+
+            return strcasecmp($a['loanName'], $b['loanName']);
+        });
+
+        return $rows;
+    }
+
+    private function checksExpectedPaymentAmountHtml(string $amount, string $lineClass): string
+    {
+        return '<div class="' . $lineClass . ' text-right font-mono tabular-nums">'
+            . e(checks_format_money_display_2($amount)) . '</div>';
+    }
+
+    private function checksExpectedPaymentLabeledHtml(string $label, string $amount, string $lineClass): string
+    {
+        return '<div class="' . $lineClass . ' text-right font-mono tabular-nums">'
+            . e($label) . e(checks_format_money_display_2($amount)) . '</div>';
     }
 
     /**
@@ -102,7 +137,7 @@ final class ChecksController
                 } else {
                     $paymentStr = loan_simple_monthly_interest($principalStr, $annualStr);
                 }
-                $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($paymentStr) . '</div>';
+                $expectedCellHtml = $this->checksExpectedPaymentAmountHtml($paymentStr, 'font-medium text-slate-900');
             } else {
                 $monthsElapsed = loan_months_elapsed_to_calendar_month($origin, $selectedYm);
                 $remainingStr = loan_remaining_principal_after_paydowns($principalStr, $mppStr, $monthsElapsed);
@@ -112,14 +147,17 @@ final class ChecksController
                     $paidOff = (float) $remainingStr <= 0.0;
                 }
                 if ($paidOff) {
-                    $expectedCellHtml = '<div class="font-medium text-slate-400">—</div><div class="text-xs text-slate-500">Paid off</div>';
+                    $expectedCellHtml = '<div class="text-right"><div class="font-medium text-slate-400">—</div>'
+                        . '<div class="text-xs text-slate-500">Paid off</div></div>';
                 } else {
                     $interestStr = checks_declining_monthly_interest($remainingStr, $annualStr);
                     $principalPortionStr = checks_normalize_money_2($mppStr);
                     $paymentStr = checks_add_money_2($interestStr, $principalPortionStr);
-                    $expectedCellHtml = '<div class="font-medium text-slate-900">' . e($paymentStr) . '</div>'
-                        . '<div class="text-xs text-slate-500">interest: $' . e($interestStr) . '</div>'
-                        . '<div class="text-xs text-slate-500">principal: $' . e($principalPortionStr) . '</div>';
+                    $expectedCellHtml = '<div class="space-y-0.5">'
+                        . $this->checksExpectedPaymentAmountHtml($paymentStr, 'font-medium text-slate-900')
+                        . $this->checksExpectedPaymentLabeledHtml('interest: ', $interestStr, 'text-xs text-slate-500')
+                        . $this->checksExpectedPaymentLabeledHtml('principal: ', $principalPortionStr, 'text-xs text-slate-500')
+                        . '</div>';
                 }
             }
 

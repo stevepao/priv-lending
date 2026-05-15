@@ -27,7 +27,7 @@
 <div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
 <table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>
 <th class="px-3 py-2 font-medium">Funding source</th><th class="px-3 py-2 font-medium">Loan</th><th class="px-3 py-2 font-medium">Method</th>
-<th class="px-3 py-2 font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Post</th><th class="px-3 py-2 font-medium">Status</th>
+<th class="px-3 py-2 text-right font-medium">Expected payment</th><th class="px-3 py-2 font-medium">Post</th><th class="px-3 py-2 font-medium">Status</th>
 </tr></thead><tbody>
 <?php if ($monthlyRowsEmpty): ?>
 <tr><td class="px-3 py-4 text-slate-500" colspan="6">No interest-only, amortizing, or post-prepaid loans for this calendar month.</td></tr>
@@ -37,7 +37,7 @@
 <td class="px-3 py-2"><?php echo e($mr['fundingSource']); ?></td>
 <td class="px-3 py-2"><?php echo e($mr['loanName']); ?></td>
 <td class="px-3 py-2"><?php echo e($mr['calcMethod']); ?></td>
-<td class="px-3 py-2"><?php echo $mr['expectedCellHtml']; ?></td>
+<td class="px-3 py-2 text-right"><?php echo $mr['expectedCellHtml']; ?></td>
 <td class="px-3 py-2"><?php echo $mr['postCell']; ?></td>
 <td class="px-3 py-2"><?php echo $mr['statusCell']; ?></td>
 </tr>

@@ -618,7 +618,7 @@ function checks_fetch_loan_rows_for_checks_page(string $selectedYm): array
         . "AND (l.maturity_date IS NULL OR DATE_FORMAT(l.maturity_date, '%Y-%m') >= ?)"
         . $closedClause
         . $statusClause
-        . ' ORDER BY e.name ASC, l.name ASC';
+        . ' ORDER BY l.funding_source ASC, l.name ASC';
 
     return dbAll($sql, $params);
 }
