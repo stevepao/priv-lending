@@ -173,6 +173,161 @@ function checks_format_money_display_2(string $amount): string
     return number_format((float) checks_normalize_money_2($t), 2, '.', ',');
 }
 
+function date_range_parse_ymd_or_null(string $raw): ?string
+{
+    $s = trim($raw);
+    if ($s === '') {
+        return null;
+    }
+    $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
+
+    return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
+}
+
+/**
+ * @return array{start: string, end: string}
+ */
+function date_range_preset_bounds(string $preset, ?DateTimeImmutable $today = null): array
+{
+    $today ??= new DateTimeImmutable('today');
+    $end = $today->format('Y-m-d');
+    if ($preset === 'last_full_year') {
+        $y = (int) $today->format('Y') - 1;
+
+        return ['start' => $y . '-01-01', 'end' => $y . '-12-31'];
+    }
+    if ($preset === 'ytd') {
+        return ['start' => $today->format('Y') . '-01-01', 'end' => $end];
+    }
+    if ($preset === 'quarter') {
+        $month = (int) $today->format('n');
+        $qStartMonth = (int) (floor(($month - 1) / 3) * 3 + 1);
+        $start = $today->setDate((int) $today->format('Y'), $qStartMonth, 1)->format('Y-m-d');
+
+        return ['start' => $start, 'end' => $end];
+    }
+
+    $start = $today->modify('first day of -2 months')->format('Y-m-d');
+
+    return ['start' => $start, 'end' => $end];
+}
+
+/**
+ * @param array<string, mixed> $get
+ *
+ * @return array{range: string, start: string, end: string, dateOrderError: bool}
+ */
+function date_range_filter_from_get(array $get): array
+{
+    $today = new DateTimeImmutable('today');
+    $default = date_range_preset_bounds('last_3_months', $today);
+    $range = isset($get['range']) ? (string) $get['range'] : 'last_3_months';
+    $valid = ['last_3_months', 'last_full_year', 'ytd', 'quarter', 'custom'];
+    if (!in_array($range, $valid, true)) {
+        $range = 'last_3_months';
+    }
+
+    if ($range === 'custom') {
+        $start = date_range_parse_ymd_or_null(isset($get['start']) ? (string) $get['start'] : '');
+        $end = date_range_parse_ymd_or_null(isset($get['end']) ? (string) $get['end'] : '');
+        if ($start === null || $end === null) {
+            return [
+                'range' => 'last_3_months',
+                'start' => $default['start'],
+                'end' => $default['end'],
+                'dateOrderError' => false,
+            ];
+        }
+        if ($start > $end) {
+            return [
+                'range' => 'custom',
+                'start' => $start,
+                'end' => $end,
+                'dateOrderError' => true,
+            ];
+        }
+
+        return [
+            'range' => 'custom',
+            'start' => $start,
+            'end' => $end,
+            'dateOrderError' => false,
+        ];
+    }
+
+    $preset = date_range_preset_bounds($range, $today);
+
+    return [
+        'range' => $range,
+        'start' => $preset['start'],
+        'end' => $preset['end'],
+        'dateOrderError' => false,
+    ];
+}
+
+/**
+ * Inclusive calendar months (Y-m) from start through end dates.
+ *
+ * @return list<string>
+ */
+function report_month_ym_keys_in_range(string $startYmd, string $endYmd): array
+{
+    $startMonth = DateTimeImmutable::createFromFormat('Y-m-d', $startYmd);
+    $endMonth = DateTimeImmutable::createFromFormat('Y-m-d', $endYmd);
+    if (!$startMonth instanceof DateTimeImmutable || !$endMonth instanceof DateTimeImmutable) {
+        return [];
+    }
+    $cur = $startMonth->modify('first day of this month');
+    $end = $endMonth->modify('first day of this month');
+    $keys = [];
+    while ($cur <= $end) {
+        $keys[] = $cur->format('Y-m');
+        $cur = $cur->modify('+1 month');
+    }
+
+    return $keys;
+}
+
+/**
+ * @return array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}
+ */
+function report_metrics_from_category_sums(string $interestInRaw, string $locSumRaw, string $principalNetSumRaw): array
+{
+    $interestIn = checks_normalize_money_2($interestInRaw);
+    $locSumNorm = checks_normalize_money_2($locSumRaw);
+    $principalPaid = checks_normalize_money_2($principalNetSumRaw);
+    if (extension_loaded('bcmath')) {
+        $locInterestOut = bcmul($locSumNorm, '-1', 2);
+        $netIncome = bcsub($interestIn, $locInterestOut, 2);
+    } else {
+        $locInterestOut = number_format(-(float) $locSumNorm, 2, '.', '');
+        $netIncome = number_format((float) $interestIn - (float) $locInterestOut, 2, '.', '');
+    }
+
+    return [
+        'interestIn' => $interestIn,
+        'locInterestOut' => $locInterestOut,
+        'netIncome' => $netIncome,
+        'principalPaid' => $principalPaid,
+    ];
+}
+
+/**
+ * @param array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string} $a
+ * @param array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string} $b
+ *
+ * @return array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}
+ */
+function report_metrics_add(array $a, array $b): array
+{
+    return [
+        'interestIn' => checks_add_money_2($a['interestIn'], $b['interestIn']),
+        'locInterestOut' => checks_add_money_2($a['locInterestOut'], $b['locInterestOut']),
+        'netIncome' => checks_add_money_2($a['netIncome'], $b['netIncome']),
+        'principalPaid' => checks_add_money_2($a['principalPaid'], $b['principalPaid']),
+    ];
+}
+
 /** Sum two money strings at 2 decimal places (bcmath scale 2; otherwise half-up). */
 function checks_add_money_2(string $a, string $b): string
 {

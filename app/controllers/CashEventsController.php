@@ -49,7 +49,7 @@ final class CashEventsController
     public function index(): void
     {
         $title = 'Cash events';
-        $filter = $this->cashEventsIndexDateFilterFromRequest();
+        $filter = date_range_filter_from_get($_GET);
         $schSel = schema_table_has_column('cash_events', 'scheduled_check_ym')
             ? 'ce.scheduled_check_ym'
             : 'CAST(NULL AS CHAR(7)) AS scheduled_check_ym';
@@ -71,95 +71,6 @@ final class CashEventsController
             'end' => $filter['end'],
             'dateOrderError' => $filter['dateOrderError'],
         ]);
-    }
-
-    /**
-     * @return array{range: string, start: string, end: string, dateOrderError: bool}
-     */
-    private function cashEventsIndexDateFilterFromRequest(): array
-    {
-        $today = new DateTimeImmutable('today');
-        $default = $this->cashEventsPresetDateRange('last_3_months', $today);
-        $range = isset($_GET['range']) ? (string) $_GET['range'] : 'last_3_months';
-        $valid = ['last_3_months', 'last_full_year', 'ytd', 'quarter', 'custom'];
-        if (!in_array($range, $valid, true)) {
-            $range = 'last_3_months';
-        }
-
-        if ($range === 'custom') {
-            $start = $this->parseYmdOrNull(isset($_GET['start']) ? (string) $_GET['start'] : '');
-            $end = $this->parseYmdOrNull(isset($_GET['end']) ? (string) $_GET['end'] : '');
-            if ($start === null || $end === null) {
-                return [
-                    'range' => 'last_3_months',
-                    'start' => $default['start'],
-                    'end' => $default['end'],
-                    'dateOrderError' => false,
-                ];
-            }
-            if ($start > $end) {
-                return [
-                    'range' => 'custom',
-                    'start' => $start,
-                    'end' => $end,
-                    'dateOrderError' => true,
-                ];
-            }
-
-            return [
-                'range' => 'custom',
-                'start' => $start,
-                'end' => $end,
-                'dateOrderError' => false,
-            ];
-        }
-
-        $preset = $this->cashEventsPresetDateRange($range, $today);
-
-        return [
-            'range' => $range,
-            'start' => $preset['start'],
-            'end' => $preset['end'],
-            'dateOrderError' => false,
-        ];
-    }
-
-    private function parseYmdOrNull(string $raw): ?string
-    {
-        $s = trim($raw);
-        if ($s === '') {
-            return null;
-        }
-        $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
-
-        return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
-    }
-
-    /**
-     * @return array{start: string, end: string}
-     */
-    private function cashEventsPresetDateRange(string $preset, DateTimeImmutable $today): array
-    {
-        $end = $today->format('Y-m-d');
-        if ($preset === 'last_full_year') {
-            $y = (int) $today->format('Y') - 1;
-
-            return ['start' => $y . '-01-01', 'end' => $y . '-12-31'];
-        }
-        if ($preset === 'ytd') {
-            return ['start' => $today->format('Y') . '-01-01', 'end' => $end];
-        }
-        if ($preset === 'quarter') {
-            $month = (int) $today->format('n');
-            $qStartMonth = (int) (floor(($month - 1) / 3) * 3 + 1);
-            $start = $today->setDate((int) $today->format('Y'), $qStartMonth, 1)->format('Y-m-d');
-
-            return ['start' => $start, 'end' => $end];
-        }
-
-        $start = $today->modify('first day of -2 months')->format('Y-m-d');
-
-        return ['start' => $start, 'end' => $end];
     }
 
     public function newForm(): void

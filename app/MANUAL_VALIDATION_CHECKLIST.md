@@ -48,7 +48,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 ## Report (`public/index.php`)
 
-23. **GET /report** — Date range form (start / end, GET); defaults to current calendar month when a bound is missing or invalid; **Run report** submits to same path. Shows Interest In, LOC Interest Out, Net Income, and FYI Principal Paid from `cash_events` with inclusive `event_date` range; amber message when start &gt; end (no query). Dashboard links to **Report**.
+23. **GET /report** — Date range selector (default **Last 3 months**): same presets as cash events plus custom range; **Show report** submits GET; monthly table with Interest In, LOC Interest Out, Net Income, Principal Paid (comma-formatted, right-aligned) and a **Total** row; all months in range shown (zeros when no events); amber error when custom start &gt; end. Dashboard links to **Report**.
 
 ## Other routes
 
