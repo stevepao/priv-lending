@@ -10,7 +10,40 @@ final class BankController
         render('bank_show', [
             'title' => 'Bank statement',
             'showInvalid' => isset($_GET['invalid']),
+            'recentLocInterestRows' => $this->fetchRecentLocInterestDisplayRows(),
         ]);
+    }
+
+    /**
+     * @return list<array{bank: string, statementDate: string, interestDisp: string}>
+     */
+    private function fetchRecentLocInterestDisplayRows(): array
+    {
+        $rows = dbAll(
+            'SELECT deposit_to, event_date, amount FROM cash_events '
+            . 'WHERE category = ? AND loan_id IS NULL '
+            . 'ORDER BY event_date DESC, deposit_to ASC LIMIT 6',
+            ['loc_interest']
+        );
+        $out = [];
+        foreach ($rows as $row) {
+            $amtRaw = (string) ($row['amount'] ?? '0');
+            $norm = checks_normalize_money_2($amtRaw);
+            if (extension_loaded('bcmath')) {
+                $positive = bccomp($norm, '0', 2) <= 0 ? bcmul($norm, '-1', 2) : $norm;
+            } else {
+                $positive = (float) $norm <= 0.0
+                    ? checks_normalize_money_2(number_format(-(float) $norm, 2, '.', ''))
+                    : $norm;
+            }
+            $out[] = [
+                'bank' => (string) ($row['deposit_to'] ?? ''),
+                'statementDate' => (string) ($row['event_date'] ?? ''),
+                'interestDisp' => checks_format_money_display_2($positive),
+            ];
+        }
+
+        return $out;
     }
 
     public function store(): void
