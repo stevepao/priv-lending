@@ -54,10 +54,9 @@ final class CashEventsController
             : 'CAST(NULL AS CHAR(7)) AS scheduled_check_ym';
         $rows = dbAll(
             'SELECT ce.id, ce.loan_id, ' . $schSel . ', ce.event_date, ce.amount, ce.category, ce.deposit_to, ce.notes, '
-            . 'l.name AS loan_name, e.name AS entity_name '
+            . 'l.name AS loan_name '
             . 'FROM cash_events ce '
             . 'LEFT JOIN loans l ON l.id = ce.loan_id '
-            . 'LEFT JOIN entities e ON e.id = l.entity_id '
             . 'ORDER BY ce.event_date DESC, ce.id DESC LIMIT 500',
             []
         );
