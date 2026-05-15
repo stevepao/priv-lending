@@ -50,16 +50,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 23. **GET /report** — Date range form (start / end, GET); defaults to current calendar month when a bound is missing or invalid; **Run report** submits to same path. Shows Interest In, LOC Interest Out, Net Income, and FYI Principal Paid from `cash_events` with inclusive `event_date` range; amber message when start &gt; end (no query). Dashboard links to **Report**.
 
-## GET /reconcile (ReconcileController + view)
-
-26. **GET /reconcile** — Requires login (same as other app pages). `ReconcileController` is required once from `public/index.php` before the route table; route key `GET /reconcile` is registered.
-27. **Defaults** — With no query string, **year** defaults to the current calendar year and **group** defaults to **entity**.
-28. **Year / group** — `year` must be a 4-digit year in **2000–2100** (otherwise current year is used). `group` must be **borrower**, **entity**, or **loan** (otherwise **entity**). Form GET submits to `/reconcile` with **Show**.
-29. **Interest totals** — Main table lists subtotals per selected dimension (borrower / entity / loan label + **Computed interest**); **Grand total** row matches sum of all `cash_events` with `category = interest` and `event_date` in that calendar year (including events not tied to a loan, which may appear under “No …” buckets).
-30. **1099 section** — Second table lists entities with interest through linked loans only; **Reported** inputs are optional, not persisted; **Difference** updates in the browser as Reported − Computed (em dash when Reported is blank or invalid).
-31. **Security** — SQL uses prepared statements with bound parameters; labels and numbers in HTML use **`e()`** escaping.
-
 ## Other routes
 
 24. **GET /** — Dashboard link row includes **Bank** and **Report** when present.
-25. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`**, **`php -l app/controllers/ReconcileController.php`**, **`php -l app/views/reconcile.php`** — No syntax errors.
+25. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.

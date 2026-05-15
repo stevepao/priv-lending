@@ -36,7 +36,6 @@ $linkClass = static function (bool $on): string {
 <a class="<?php echo e($linkClass($active($path, '/entities'))); ?>" href="/entities">Entities</a>
 <a class="<?php echo e($linkClass($active($path, '/borrowers'))); ?>" href="/borrowers">Borrowers</a>
 <a class="<?php echo e($linkClass($active($path, '/report'))); ?>" href="/report">Report</a>
-<a class="<?php echo e($linkClass($active($path, '/reconcile'))); ?>" href="/reconcile">Reconcile</a>
 </nav>
 <form class="shrink-0" method="post" action="/logout"><?php echo csrf_field(); ?>
 <button class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" type="submit">Sign out</button>
