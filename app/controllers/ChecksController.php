@@ -195,7 +195,7 @@ final class ChecksController
     /**
      * @param list<array<string, mixed>> $prepaidRows
      *
-     * @return list<array{fundingSource: string, loanName: string, pAmtCellHtml: string, postCell: string, statusCell: string}>
+     * @return list<array{fundingSource: string, loanName: string, origin: string, pAmtCellHtml: string, postCell: string, statusCell: string}>
      */
     private function buildPrepaidDisplayRows(array $prepaidRows): array
     {
@@ -205,6 +205,8 @@ final class ChecksController
             $fundingSrc = checks_funding_source_for_row($row);
             $fundingSource = $fundingSrc !== null ? $fundingSrc : '—';
             $loanName = (string) ($row['name'] ?? '');
+            $originRaw = $row['origin_date'] ?? null;
+            $origin = $originRaw !== null && (string) $originRaw !== '' ? (string) $originRaw : '—';
             $pAmt = checks_prepaid_interest_amount_db_string($row);
             $pAmtCellHtml = $pAmt !== null
                 ? $this->checksExpectedPaymentAmountHtml($pAmt, 'font-medium text-slate-900')
@@ -227,6 +229,7 @@ final class ChecksController
             $out[] = [
                 'fundingSource' => $fundingSource,
                 'loanName' => $loanName,
+                'origin' => $origin,
                 'pAmtCellHtml' => $pAmtCellHtml,
                 'postCell' => $postCell,
                 'statusCell' => $statusCell,

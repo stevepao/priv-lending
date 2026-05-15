@@ -17,7 +17,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 4. **Nav links** — Dashboard, Loans, Cash events (same classes as before).
 5. **Flash** — `?posted=1` shows green success; `?posted=0` shows amber “nothing posted” (after POST redirect).
 6. **Monthly table** — Rows show funding source (loan), loan name, method, expected payment, Post/Status (Posted / Not posted / Paid off / No payment), empty state when no rows; default sort **funding source** then **loan name** (ascending); column headers still re-sort client-side; **interest-only**, **amortizing**, and **post-prepaid** rows only when the viewed month is **strictly after** the loan’s origin calendar month (first monthly check is the month after origin).
-7. **Prepaid table** — Same funding source column, loan name, amounts, Post/Status, empty state when none in window; same default sort as monthly table; **prepaid** loans still appear in the **prepaid** table through the origin month when inside the prepaid-through window.
+7. **Prepaid table** — Same funding source column, loan name, **origin** date, prepaid amount (formatted), Post/Status, empty state when none in window (colspan 6); same default sort as monthly table; **prepaid** loans still appear in the **prepaid** table through the origin month when inside the prepaid-through window.
 8. **POST form** — CSRF field, hidden `month`, `event_date` defaulting to today, **Post cash events** submits to **POST /checks** (unchanged handler in `index.php`).
 
 ## POST /checks (still in index.php)
