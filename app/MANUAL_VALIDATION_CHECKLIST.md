@@ -13,7 +13,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 1. **GET /checks** — Page loads; title “Monthly Check Batches”; Tailwind CDN present.
 2. **Month control** — Default month is current calendar month; changing month and **Show** updates the list (same query params as before).
-3. **Copy / banners** — Intro paragraph, optional amber banner when `scheduled_check_ym` is missing (0005), optional amber when split-posting index is missing (0007) but 0005 applied, optional amber when `prepaid_interest_received` is missing (0006), footer note under the post button describes monthly + prepaid posting.
+3. **Copy / banners** — User-facing intro (bullets), **Monthly payments** / **Prepaid loans** section headings, plain-language success/failure messages, **Payment date** + **Save selected payments**; optional amber banners when migrations 0005/0006/0007 missing (friendly text, migration id in code); short footer under save button.
 4. **Nav links** — Dashboard, Loans, Cash events (same classes as before).
 5. **Flash** — `?posted=1` shows green success; `?posted=0` shows amber “nothing posted” (after POST redirect).
 6. **Monthly table** — Rows show funding source (loan), loan name, method, expected payment, Post/Status (Posted / Not posted / Paid off / No payment), empty state when no rows; default sort **funding source** then **loan name** (ascending); column headers still re-sort client-side; **interest-only**, **amortizing**, and **post-prepaid** rows only when the viewed month is **strictly after** the loan’s origin calendar month (first monthly check is the month after origin).

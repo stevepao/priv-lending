@@ -106,6 +106,11 @@ final class ChecksController
             . e($label) . e(checks_format_money_display_2($amount)) . '</div>';
     }
 
+    private function checksInterestCalcMethodLabel(string $calcMethod): string
+    {
+        return $calcMethod === 'declining_balance' ? 'Declining balance' : 'Fixed rate';
+    }
+
     /**
      * @param list<array<string, mixed>> $monthlyRows
      *
@@ -168,21 +173,21 @@ final class ChecksController
                 $postCell = '<span class="text-slate-400">—</span>';
                 $statusCell = '<span class="font-medium text-emerald-800">Posted</span>';
             } elseif ($calcMethod === 'declining_balance' && $paidOff) {
-                $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Post this check</span></label>';
+                $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Record this payment</span></label>';
                 $statusCell = '<span class="text-slate-600">Paid off</span>';
             } elseif ($paymentTotal === null) {
-                $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Post this check</span></label>';
-                $statusCell = '<span class="text-slate-600">No payment</span>';
+                $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" disabled class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Record this payment</span></label>';
+                $statusCell = '<span class="text-slate-600">No amount due</span>';
             } else {
                 $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" name="loan_ids[]" value="'
-                    . e((string) $loanId) . '" class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Post this check</span></label>';
-                $statusCell = '<span class="text-slate-600">Not posted</span>';
+                    . e((string) $loanId) . '" class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Record this payment</span></label>';
+                $statusCell = '<span class="text-slate-600">Not recorded</span>';
             }
 
             $out[] = [
                 'fundingSource' => $fundingSource,
                 'loanName' => $loanName,
-                'calcMethod' => $calcMethod,
+                'calcMethod' => $this->checksInterestCalcMethodLabel($calcMethod),
                 'expectedCellHtml' => $expectedCellHtml,
                 'postCell' => $postCell,
                 'statusCell' => $statusCell,
@@ -217,13 +222,13 @@ final class ChecksController
             if ($received) {
                 $statusCell = '<span class="font-medium text-emerald-800">Posted</span>';
             } elseif ($pAmt === null) {
-                $statusCell = '<span class="text-amber-800">Invalid amount</span>';
+                $statusCell = '<span class="text-amber-800">Amount not set</span>';
             } elseif (!schema_table_has_column('loans', 'prepaid_interest_received')) {
-                $statusCell = '<span class="text-slate-500">Migration required</span>';
+                $statusCell = '<span class="text-slate-500">Not set up yet</span>';
             } else {
-                $statusCell = '<span class="text-slate-600">Not posted</span>';
+                $statusCell = '<span class="text-slate-600">Not recorded</span>';
                 $postCell = '<label class="inline-flex items-center gap-2"><input type="checkbox" name="prepaid_loan_ids[]" value="'
-                    . e((string) $loanId) . '" class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Post prepaid interest</span></label>';
+                    . e((string) $loanId) . '" class="h-4 w-4 rounded border-slate-300"> <span class="sr-only">Record this prepaid payment</span></label>';
             }
 
             $out[] = [
