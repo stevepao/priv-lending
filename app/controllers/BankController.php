@@ -31,36 +31,26 @@ final class BankController
         }
 
         $intRaw = loan_normalize_decimal_input((string) ($_POST['interest_amount'] ?? ''));
-        $prinRaw = loan_normalize_decimal_input((string) ($_POST['principal_amount'] ?? ''));
         $intTrim = trim($intRaw) === '' ? '0' : trim($intRaw);
-        $prinTrim = trim($prinRaw) === '' ? '0' : trim($prinRaw);
-        if (!preg_match('/^\d{1,10}(\.\d{1,2})?$/', $intTrim) || !preg_match('/^\d{1,10}(\.\d{1,2})?$/', $prinTrim)) {
+        if (!preg_match('/^\d{1,10}(\.\d{1,2})?$/', $intTrim)) {
             header('Location: /bank?invalid=1');
             exit;
         }
         $intPos = checks_normalize_money_2($intTrim);
-        $prinPos = checks_normalize_money_2($prinTrim);
         if (extension_loaded('bcmath')) {
-            if (bccomp($intPos, '0', 2) === -1 || bccomp($prinPos, '0', 2) === -1) {
+            if (bccomp($intPos, '0', 2) === -1) {
                 header('Location: /bank?invalid=1');
                 exit;
             }
-        } elseif ((float) $intPos < 0.0 || (float) $prinPos < 0.0) {
+        } elseif ((float) $intPos < 0.0) {
             header('Location: /bank?invalid=1');
             exit;
         }
 
         $negLoc = extension_loaded('bcmath') ? bcmul($intPos, '-1', 2) : number_format(-(float) $intPos, 2, '.', '');
-        $negPrin = extension_loaded('bcmath') ? bcmul($prinPos, '-1', 2) : number_format(-(float) $prinPos, 2, '.', '');
-
         $notesLoc = 'Bank statement ' . $stmtDateRaw . ' (loc_interest)';
-        $notesPrin = 'Bank statement ' . $stmtDateRaw . ' (principal_out)';
 
         $pdo = db();
-        $insertPrincipalOut = extension_loaded('bcmath')
-            ? bccomp($prinPos, '0', 2) === 1
-            : (float) $prinPos > 0.0;
-
         $pdo->beginTransaction();
         try {
             if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
@@ -68,17 +58,11 @@ final class BankController
                     'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, NULL, ?, ?, ?, ?, ?)'
                 );
                 $ins->execute([null, $stmtDateRaw, $negLoc, 'loc_interest', $bank, $notesLoc]);
-                if ($insertPrincipalOut) {
-                    $ins->execute([null, $stmtDateRaw, $negPrin, 'principal_out', $bank, $notesPrin]);
-                }
             } else {
                 $ins = $pdo->prepare(
                     'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
                 );
                 $ins->execute([null, $stmtDateRaw, $negLoc, 'loc_interest', $bank, $notesLoc]);
-                if ($insertPrincipalOut) {
-                    $ins->execute([null, $stmtDateRaw, $negPrin, 'principal_out', $bank, $notesPrin]);
-                }
             }
             $pdo->commit();
         } catch (Throwable $e) {

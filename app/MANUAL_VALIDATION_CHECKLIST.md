@@ -43,8 +43,8 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 ## Bank (`public/index.php`)
 
-21. **GET /bank** — Form shows bank selector (JPM / NTRS), statement date, interest amount, principal amount (default 0.00); CSRF field; **Save** posts to **POST /bank**; **Cancel** to `/`; invalid query shows amber banner.
-22. **POST /bank** — Valid submission inserts one or two `cash_events` with `loan_id` NULL, `deposit_to` equal to selected bank, `event_date` equal to statement date: first row `category = loc_interest`, amount **negative** of the entered interest; when principal amount &gt; 0, second row `category = principal_out` with amount **negative** of the entered principal. When principal is 0, only the `loc_interest` row is inserted. `scheduled_check_ym` NULL when that column exists. CSRF enforced. Invalid input redirects to **GET /bank?invalid=1** with no inserts.
+21. **GET /bank** — Form shows bank selector (JPM / NTRS), statement date, interest amount; CSRF field; **Save** posts to **POST /bank**; **Cancel** to `/`; invalid query shows amber banner.
+22. **POST /bank** — Valid submission inserts one `cash_events` row with `loan_id` NULL, `deposit_to` equal to selected bank, `event_date` equal to statement date, `category = loc_interest`, amount **negative** of the entered interest. `scheduled_check_ym` NULL when that column exists. CSRF enforced. Invalid input redirects to **GET /bank?invalid=1** with no inserts. (Bank LOC `principal_out` is not on this form; use **Cash events** if needed.)
 
 ## Report (`public/index.php`)
 

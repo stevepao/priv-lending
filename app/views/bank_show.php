@@ -13,8 +13,6 @@
 <input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="statement_date" name="statement_date" type="date" required></div>
 <div><label class="mb-1 block text-sm font-medium text-slate-700" for="interest_amount">Interest amount</label>
 <input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="interest_amount" name="interest_amount" type="text" inputmode="decimal" required placeholder="0.00"></div>
-<div><label class="mb-1 block text-sm font-medium text-slate-700" for="principal_amount">Principal amount</label>
-<input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="principal_amount" name="principal_amount" type="text" inputmode="decimal" placeholder="0.00" value="0.00"></div>
 <div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit">Save</button>
 <a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/">Cancel</a></div>
 </form></div>
