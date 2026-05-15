@@ -15,86 +15,93 @@ final class LoansController
             ? 'l.interest_calc_method'
             : "'fixed' AS interest_calc_method";
         $balSub = loan_sql_cash_principal_balance_subquery();
+        $closedSel = isset($idx['closed_date']) ? 'l.closed_date' : 'CAST(NULL AS DATE) AS closed_date';
         $rows = dbAll(
             'SELECT l.id, l.name, l.funding_source, l.origin_date, l.payment_type, l.principal_amount, l.annual_interest_rate, '
             . $monthlySel . ', ' . $icmSel
-            . ', l.prepaid_interest_amount, l.prepaid_interest_date, e.name AS entity_name, '
-            . $balSub . ' AS current_balance_raw FROM loans l INNER JOIN entities e ON e.id = l.entity_id ORDER BY e.name ASC, l.name ASC',
+            . ', l.prepaid_interest_amount, l.prepaid_interest_date, ' . $closedSel . ', e.name AS entity_name, '
+            . $balSub . ' AS current_balance_raw FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
+            . 'ORDER BY l.origin_date ASC, l.id ASC',
             []
         );
 
-        $loanRows = $this->buildLoanListDisplayRows($rows);
+        $openLoanRows = [];
+        $closedLoanRows = [];
+        foreach ($rows as $row) {
+            $display = $this->buildLoanListDisplayRow($row);
+            $cd = $row['closed_date'] ?? null;
+            if ($cd !== null && (string) $cd !== '') {
+                $closedLoanRows[] = $display;
+            } else {
+                $openLoanRows[] = $display;
+            }
+        }
 
         header('Content-Type: text/html; charset=utf-8');
         render('loans', [
             'title' => $title,
-            'loanRows' => $loanRows,
-            'rowsEmpty' => $rows === [],
+            'openLoanRows' => $openLoanRows,
+            'closedLoanRows' => $closedLoanRows,
         ]);
     }
 
     /**
-     * @param list<array<string, mixed>> $rows
+     * @param array<string, mixed> $row
      *
-     * @return list<array<string, string|bool>>
+     * @return array<string, string|bool>
      */
-    private function buildLoanListDisplayRows(array $rows): array
+    private function buildLoanListDisplayRow(array $row): array
     {
-        $out = [];
-        foreach ($rows as $row) {
-            $id = (string) ($row['id'] ?? '');
-            $entityName = (string) ($row['entity_name'] ?? '');
-            $loanName = (string) ($row['name'] ?? '');
-            $funding = (string) ($row['funding_source'] ?? '');
-            $origin = (string) ($row['origin_date'] ?? '');
-            $ptype = (string) ($row['payment_type'] ?? '');
-            $balRaw = $row['current_balance_raw'] ?? null;
-            $balStr = $balRaw !== null && $balRaw !== '' ? (string) $balRaw : '0';
-            $currentBalance = checks_normalize_money_2($balStr);
-            $principal = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '';
-            $rate = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '';
-            $monthlyIntStr = isset($row['monthly_interest']) && $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
-            $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
-            if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
-                $calcMethod = 'fixed';
-            }
-            $impliedAnnual = null;
-            if ($calcMethod === 'fixed'
-                && in_array($ptype, ['interest_only', 'amortizing'], true)
-                && loan_annual_interest_rate_is_blank_or_zero($rate)
-                && $monthlyIntStr !== '') {
-                $impliedAnnual = loan_implied_annual_percent_from_monthly_interest($principal, $monthlyIntStr);
-            }
-            if (in_array($ptype, ['interest_only', 'amortizing'], true)) {
-                if ($impliedAnnual !== null) {
-                    $estMonthly = checks_normalize_money_2($monthlyIntStr);
-                } else {
-                    $estMonthly = loan_simple_monthly_interest($principal, $rate);
-                }
+        $id = (string) ($row['id'] ?? '');
+        $entityName = (string) ($row['entity_name'] ?? '');
+        $loanName = (string) ($row['name'] ?? '');
+        $funding = (string) ($row['funding_source'] ?? '');
+        $origin = (string) ($row['origin_date'] ?? '');
+        $ptype = (string) ($row['payment_type'] ?? '');
+        $balRaw = $row['current_balance_raw'] ?? null;
+        $balStr = $balRaw !== null && $balRaw !== '' ? (string) $balRaw : '0';
+        $currentBalance = checks_normalize_money_2($balStr);
+        $principal = $row['principal_amount'] !== null && $row['principal_amount'] !== '' ? (string) $row['principal_amount'] : '';
+        $rate = $row['annual_interest_rate'] !== null && $row['annual_interest_rate'] !== '' ? (string) $row['annual_interest_rate'] : '';
+        $monthlyIntStr = isset($row['monthly_interest']) && $row['monthly_interest'] !== null && $row['monthly_interest'] !== '' ? (string) $row['monthly_interest'] : '';
+        $calcMethod = (string) ($row['interest_calc_method'] ?? 'fixed');
+        if (!in_array($calcMethod, ['fixed', 'declining_balance'], true)) {
+            $calcMethod = 'fixed';
+        }
+        $impliedAnnual = null;
+        if ($calcMethod === 'fixed'
+            && in_array($ptype, ['interest_only', 'amortizing'], true)
+            && loan_annual_interest_rate_is_blank_or_zero($rate)
+            && $monthlyIntStr !== '') {
+            $impliedAnnual = loan_implied_annual_percent_from_monthly_interest($principal, $monthlyIntStr);
+        }
+        if (in_array($ptype, ['interest_only', 'amortizing'], true)) {
+            if ($impliedAnnual !== null) {
+                $estMonthly = checks_normalize_money_2($monthlyIntStr);
             } else {
                 $estMonthly = loan_simple_monthly_interest($principal, $rate);
             }
-            $principalTitle = in_array($ptype, ['interest_only', 'amortizing'], true)
-                ? 'Est. monthly interest (full principal, not amortized): ' . $estMonthly
-                : '';
-
-            $out[] = [
-                'id' => $id,
-                'entityName' => $entityName,
-                'loanName' => $loanName,
-                'funding' => $funding,
-                'origin' => $origin,
-                'currentBalance' => $currentBalance,
-                'principal' => $principal,
-                'principalTitle' => $principalTitle,
-                'rateIsImplied' => $impliedAnnual !== null,
-                'impliedAnnual' => $impliedAnnual !== null ? (string) $impliedAnnual : '',
-                'rateDisplay' => $rate !== '' ? $rate : '0',
-                'ptype' => $ptype,
-            ];
+        } else {
+            $estMonthly = loan_simple_monthly_interest($principal, $rate);
         }
+        $principalTitle = in_array($ptype, ['interest_only', 'amortizing'], true)
+            ? 'Est. monthly interest (full principal, not amortized): ' . $estMonthly
+            : '';
 
-        return $out;
+        return [
+            'id' => $id,
+            'entityName' => $entityName,
+            'loanName' => $loanName,
+            'funding' => $funding,
+            'origin' => $origin,
+            'currentBalance' => $currentBalance,
+            'principal' => $principal,
+            'principalTitle' => $principalTitle,
+            'rateIsImplied' => $impliedAnnual !== null,
+            'impliedAnnual' => $impliedAnnual !== null ? (string) $impliedAnnual : '',
+            'rateDisplay' => $rate !== '' ? $rate : '0',
+            'ptype' => $ptype,
+        ];
     }
 
     public function create(): void

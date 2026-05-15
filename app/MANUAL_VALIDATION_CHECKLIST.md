@@ -27,7 +27,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 ## Loans (LoansController + views)
 
-11. **GET /loans** — Page loads; title “Loans”; **New loan** link; Dashboard link; table headers and empty state “No loans yet.” when there are no rows; with data: columns match prior list (principal tooltip on IO/amortizing, implied annual cell when applicable, Edit links to `/loans/edit?id=…`).
+11. **GET /loans** — Page loads; title “Loans”; **New loan** link; Dashboard link; **Open loans** and **Closed loans** sections (each table sorted by origin date ascending); per-section empty states (“No open loans.” / “No closed loans.”); with data: columns match prior list (principal tooltip on IO/amortizing, implied annual cell when applicable, Edit links to `/loans/edit?id=…`); closed loans have `closed_date` set.
 12. **GET /loans/new** — Form fields, copy, entity dropdown, CSRF field, optional **Create funding transaction (principal_out) on save** when migration **0008** is applied (otherwise amber migration note); **Save** posts to **POST /loans/new**; **Cancel** to `/loans`; empty-entities message and link to `/entities/new` when no entities.
 13. **GET /loans/new?invalid=1** — Amber validation banner; includes guidance when funding checkbox was used without migration or without positive principal.
 14. **POST /loans/new** — Valid submissions insert and redirect to **GET /loans**; invalid submissions redirect to **GET /loans/new?invalid=1**. With **0008** and funding checkbox checked and principal &gt; 0: one `cash_events` row (`principal_out`, negative amount, `loan_id` set, `event_date` = origin, `deposit_to` = funding source) and `funding_principal_out_posted = 1` on the new loan (same transaction as loan insert).
