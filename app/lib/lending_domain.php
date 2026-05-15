@@ -162,6 +162,17 @@ function checks_normalize_money_2(string $amount): string
     return number_format((float) $t, 2, '.', '');
 }
 
+/** Format money for UI tables: thousands separators and two decimals (e.g. 1,234.56). Blank in → blank out. */
+function checks_format_money_display_2(string $amount): string
+{
+    $t = trim($amount);
+    if ($t === '') {
+        return '';
+    }
+
+    return number_format((float) checks_normalize_money_2($t), 2, '.', ',');
+}
+
 /** Sum two money strings at 2 decimal places (bcmath scale 2; otherwise half-up). */
 function checks_add_money_2(string $a, string $b): string
 {
