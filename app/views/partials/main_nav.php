@@ -33,6 +33,7 @@ $linkClass = static function (bool $on): string {
 <a class="<?php echo e($linkClass($active($path, '/bank'))); ?>" href="/bank">Bank</a>
 <a class="<?php echo e($linkClass($active($path, '/cash-events'))); ?>" href="/cash-events">Cash Events</a>
 <a class="<?php echo e($linkClass($active($path, '/loans'))); ?>" href="/loans">Loans</a>
+<a class="<?php echo e($linkClass($active($path, '/payoff'))); ?>" href="/payoff">Payoff</a>
 <a class="<?php echo e($linkClass($active($path, '/entities'))); ?>" href="/entities">Entities</a>
 <a class="<?php echo e($linkClass($active($path, '/borrowers'))); ?>" href="/borrowers">Borrowers</a>
 <a class="<?php echo e($linkClass($active($path, '/report'))); ?>" href="/report">Report</a>

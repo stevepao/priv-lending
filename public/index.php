@@ -45,6 +45,7 @@ require_once $c . 'ChecksController.php';
 require_once $c . 'DashboardController.php';
 require_once $c . 'EntitiesController.php';
 require_once $c . 'LoansController.php';
+require_once $c . 'PayoffController.php';
 require_once $c . 'ReportController.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -140,6 +141,12 @@ $routes = [
     },
     'GET /report' => static function (): void {
         (new ReportController())->index();
+    },
+    'GET /payoff' => static function (): void {
+        (new PayoffController())->form();
+    },
+    'POST /payoff' => static function (): void {
+        (new PayoffController())->statement();
     },
     'GET /loans/new' => static function (): void {
         (new LoansController())->create();
