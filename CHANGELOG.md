@@ -22,4 +22,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - README corrections: domain helpers live in `app/lib/lending_domain.php`, not `public/index.php`.
 
-[0.1.0]: https://github.com/YOUR_USERNAME/priv-lending/releases/tag/v0.1.0
+[0.1.0]: https://github.com/stevepao/priv-lending/releases/tag/v0.1.0
