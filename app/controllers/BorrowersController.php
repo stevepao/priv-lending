@@ -7,7 +7,7 @@ final class BorrowersController
     public function index(): void
     {
         $title = 'Borrowers';
-        $rows = dbAll('SELECT id, name, notes FROM borrowers ORDER BY name ASC', []);
+        $rows = dbAll('SELECT id, name, address, city, state, zip, notes FROM borrowers ORDER BY name ASC', []);
         header('Content-Type: text/html; charset=utf-8');
         render('borrowers_index', [
             'title' => $title,
@@ -33,8 +33,9 @@ final class BorrowersController
             exit;
         }
         $notes = $notesRaw === '' ? null : $notesRaw;
-        $stmt = db()->prepare('INSERT INTO borrowers (name, notes) VALUES (?, ?)');
-        $stmt->execute([$name, $notes]);
+        [$addr, $city, $state, $zip] = self::borrowerAddressFromPost();
+        $stmt = db()->prepare('INSERT INTO borrowers (name, address, city, state, zip, notes) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$name, $addr, $city, $state, $zip, $notes]);
         header('Location: /borrowers');
         exit;
     }
@@ -46,7 +47,7 @@ final class BorrowersController
             header('Location: /borrowers');
             exit;
         }
-        $row = dbOne('SELECT id, name, notes FROM borrowers WHERE id = ?', [$id]);
+        $row = dbOne('SELECT id, name, address, city, state, zip, notes FROM borrowers WHERE id = ?', [$id]);
         if ($row === null) {
             header('Location: /borrowers');
             exit;
@@ -55,11 +56,19 @@ final class BorrowersController
         $bid = (string) ($row['id'] ?? '');
         $nameVal = (string) ($row['name'] ?? '');
         $notesVal = $row['notes'] !== null && $row['notes'] !== '' ? (string) $row['notes'] : '';
+        $addressVal = $row['address'] !== null && $row['address'] !== '' ? (string) $row['address'] : '';
+        $cityVal = $row['city'] !== null && $row['city'] !== '' ? (string) $row['city'] : '';
+        $stateVal = $row['state'] !== null && $row['state'] !== '' ? (string) $row['state'] : '';
+        $zipVal = $row['zip'] !== null && $row['zip'] !== '' ? (string) $row['zip'] : '';
         header('Content-Type: text/html; charset=utf-8');
         render('borrowers_edit', [
             'title' => $title,
             'bid' => $bid,
             'nameVal' => $nameVal,
+            'addressVal' => $addressVal,
+            'cityVal' => $cityVal,
+            'stateVal' => $stateVal,
+            'zipVal' => $zipVal,
             'notesVal' => $notesVal,
         ]);
     }
@@ -79,9 +88,24 @@ final class BorrowersController
             exit;
         }
         $notes = $notesRaw === '' ? null : $notesRaw;
-        $stmt = db()->prepare('UPDATE borrowers SET name = ?, notes = ? WHERE id = ?');
-        $stmt->execute([$name, $notes, $id]);
+        [$addr, $city, $state, $zip] = self::borrowerAddressFromPost();
+        $stmt = db()->prepare('UPDATE borrowers SET name = ?, address = ?, city = ?, state = ?, zip = ?, notes = ? WHERE id = ?');
+        $stmt->execute([$name, $addr, $city, $state, $zip, $notes, $id]);
         header('Location: /borrowers');
         exit;
+    }
+
+    /**
+     * @return array{0: ?string, 1: ?string, 2: ?string, 3: ?string}
+     */
+    private static function borrowerAddressFromPost(): array
+    {
+        $norm = static function (string $key): ?string {
+            $t = trim((string) ($_POST[$key] ?? ''));
+
+            return $t === '' ? null : $t;
+        };
+
+        return [$norm('address'), $norm('city'), $norm('state'), $norm('zip')];
     }
 }
