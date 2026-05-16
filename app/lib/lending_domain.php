@@ -332,6 +332,15 @@ function report_principal_out_draw_magnitude(string $rawSum): string
 }
 
 /**
+ * Allocation weight from a loan’s principal ledger (principal_in + principal_out), i.e. current balance on the Loans list.
+ * Negative total (typical outstanding) yields a positive magnitude; zero or positive yields zero weight.
+ */
+function report_principal_ledger_balance_weight(string $ledgerSumRaw): string
+{
+    return report_principal_out_draw_magnitude($ledgerSumRaw);
+}
+
+/**
  * Period LOC interest as a positive “out” pool (same sign convention as report_metrics_from_category_sums).
  */
 function report_loc_interest_pool_positive(string $locInterestCategorySumRaw): string
@@ -369,7 +378,8 @@ function report_metrics_from_interest_principal_alloc_loc(string $interestInRaw,
 }
 
 /**
- * Rough LOC allocation: for each bank with pool P, split P across segments in proportion to principal_out draw weights.
+ * Rough LOC allocation: for each bank with pool P, split P across segments in proportion to per-segment weights at that bank
+ * (e.g. loan/entity report uses outstanding principal by funding source).
  *
  * @param array<string, string> $poolsByBank        deposit_to key (empty string when null) => positive pool
  * @param array<string, array<string, string>> $weightsBySegment segment key => bank key => positive weight

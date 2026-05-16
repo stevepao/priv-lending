@@ -45,10 +45,10 @@ Totals by bank from <strong><?php echo e($start); ?></strong> through <strong><?
 Each row is one calendar month and bank. Only month–bank combinations with activity in range are listed. Same bank field as <strong>Deposit to</strong> on cash events.
 <?php elseif ($reportType === 'loan'): ?>
 Totals by loan for <strong><?php echo e($start); ?></strong> through <strong><?php echo e($end); ?></strong>. Rows with no loan aggregate bank or other events not tied to a loan.
-<strong>LOC interest out</strong> is a rough allocation: for each bank, period LOC expense is split across loans in proportion to principal draws (<code>principal_out</code>) for that loan vs total draws to that bank in the date range.
+<strong>LOC interest out</strong> is a rough allocation: for each bank, period LOC expense is split across loans in proportion to <strong>current balance</strong> (principal in + out on the loan, same as the Loans list) for loans funded from that bank (<strong>Funding source</strong>, same values as <strong>Deposit to</strong>) vs total such balance for that bank.
 <?php else: ?>
 Totals by borrowing entity for <strong><?php echo e($start); ?></strong> through <strong><?php echo e($end); ?></strong>, using each loan’s entity. Events not on a loan are grouped separately.
-<strong>LOC interest out</strong> uses the same allocation rule by entity: each bank’s LOC expense is split using principal draws to that bank, comparing the entity’s draws to all draws for the period.
+<strong>LOC interest out</strong> uses the same allocation rule by entity: each bank’s share uses sums of loan current balances for that entity and funding source.
 <?php endif; ?>
 Net income is interest in minus LOC interest out (minus allocated LOC for by-loan and by-entity views). Principal paid is the sum of principal in and principal out (for reference).</p>
 <div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">

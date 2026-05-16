@@ -7,7 +7,7 @@ final class ReportController
     /** @var list<string> */
     private const REPORT_TYPES = ['month', 'bank', 'month_bank', 'loan', 'entity'];
 
-    /** Note when some period LOC could not be split by principal_out weights (shown for By loan / By entity). */
+    /** Note when some period LOC could not be split by loan-balance weights (shown for By loan / By entity). */
     private string $locAllocUnallocatedNote = '';
 
     public function index(): void
@@ -150,22 +150,30 @@ final class ReportController
     }
 
     /**
+     * @return list<array{loan_id: int|string|null, entity_id: int|string|null, funding_source: string|null, balance_raw: string|float}>
+     */
+    private function loanLedgerRowsForLocAllocation(): array
+    {
+        $balSub = loan_sql_cash_principal_balance_subquery();
+
+        return dbAll(
+            'SELECT l.id AS loan_id, l.entity_id, l.funding_source, ' . $balSub . ' AS balance_raw FROM loans l',
+            []
+        );
+    }
+
+    /**
+     * Weights from each loan’s cash principal ledger balance (same as Loans list) and Funding source (matches Deposit to).
+     *
      * @return array<string, array<string, string>>
      */
-    private function principalOutWeightsByLoan(string $start, string $end): array
+    private function locAllocationWeightsByLoanSegment(): array
     {
-        $rows = dbAll(
-            'SELECT ce.loan_id, ce.deposit_to, COALESCE(SUM(ce.amount), 0) AS pr_out_sum '
-            . 'FROM cash_events ce '
-            . 'WHERE ce.event_date >= ? AND ce.event_date <= ? AND ce.category = ? '
-            . 'GROUP BY ce.loan_id, ce.deposit_to',
-            [$start, $end, 'principal_out']
-        );
         $weights = [];
-        foreach ($rows as $r) {
+        foreach ($this->loanLedgerRowsForLocAllocation() as $r) {
             $seg = $this->loanSegmentKey($r['loan_id'] ?? null);
-            $bk = $this->depositToKey($r['deposit_to'] ?? null);
-            $w = report_principal_out_draw_magnitude((string) ($r['pr_out_sum'] ?? '0'));
+            $bk = $this->depositToKey($r['funding_source'] ?? null);
+            $w = report_principal_ledger_balance_weight((string) ($r['balance_raw'] ?? '0'));
             if (!isset($weights[$seg])) {
                 $weights[$seg] = [];
             }
@@ -177,23 +185,17 @@ final class ReportController
     }
 
     /**
+     * Same balances as {@see locAllocationWeightsByLoanSegment}, aggregated by borrowing entity.
+     *
      * @return array<string, array<string, string>>
      */
-    private function principalOutWeightsByEntity(string $start, string $end): array
+    private function locAllocationWeightsByEntitySegment(): array
     {
-        $rows = dbAll(
-            'SELECT l.entity_id, ce.deposit_to, COALESCE(SUM(ce.amount), 0) AS pr_out_sum '
-            . 'FROM cash_events ce '
-            . 'LEFT JOIN loans l ON l.id = ce.loan_id '
-            . 'WHERE ce.event_date >= ? AND ce.event_date <= ? AND ce.category = ? '
-            . 'GROUP BY l.entity_id, ce.deposit_to',
-            [$start, $end, 'principal_out']
-        );
         $weights = [];
-        foreach ($rows as $r) {
+        foreach ($this->loanLedgerRowsForLocAllocation() as $r) {
             $seg = $this->entitySegmentKey($r['entity_id'] ?? null);
-            $bk = $this->depositToKey($r['deposit_to'] ?? null);
-            $w = report_principal_out_draw_magnitude((string) ($r['pr_out_sum'] ?? '0'));
+            $bk = $this->depositToKey($r['funding_source'] ?? null);
+            $w = report_principal_ledger_balance_weight((string) ($r['balance_raw'] ?? '0'));
             if (!isset($weights[$seg])) {
                 $weights[$seg] = [];
             }
@@ -223,7 +225,7 @@ final class ReportController
             }
         }
         $this->locAllocUnallocatedNote = 'Roughly ' . checks_format_money_display_2($unalloc)
-            . ' of line-of-credit interest in this range is not attributed above (no principal draws on that bank in the period to weight the split).';
+            . ' of line-of-credit interest in this range is not attributed above (no loans with outstanding balance on record for that bank’s funding source to weight the split).';
     }
 
     /**
@@ -364,7 +366,7 @@ final class ReportController
         );
 
         $pools = $this->locInterestPoolsByDeposit($start, $end);
-        $weights = $this->principalOutWeightsByLoan($start, $end);
+        $weights = $this->locAllocationWeightsByLoanSegment();
         $allocBySeg = report_allocate_loc_interest_by_principal_weights($pools, $weights);
         $this->setLocAllocUnallocatedNoteIfNeeded($pools, $allocBySeg);
 
@@ -407,7 +409,7 @@ final class ReportController
         );
 
         $pools = $this->locInterestPoolsByDeposit($start, $end);
-        $weights = $this->principalOutWeightsByEntity($start, $end);
+        $weights = $this->locAllocationWeightsByEntitySegment();
         $allocBySeg = report_allocate_loc_interest_by_principal_weights($pools, $weights);
         $this->setLocAllocUnallocatedNoteIfNeeded($pools, $allocBySeg);
 
