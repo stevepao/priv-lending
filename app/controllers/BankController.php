@@ -86,17 +86,7 @@ final class BankController
         $pdo = db();
         $pdo->beginTransaction();
         try {
-            if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
-                $ins = $pdo->prepare(
-                    'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, NULL, ?, ?, ?, ?, ?)'
-                );
-                $ins->execute([null, $stmtDateRaw, $negLoc, 'loc_interest', $bank, $notesLoc]);
-            } else {
-                $ins = $pdo->prepare(
-                    'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
-                );
-                $ins->execute([null, $stmtDateRaw, $negLoc, 'loc_interest', $bank, $notesLoc]);
-            }
+            cash_event_insert(null, null, $stmtDateRaw, $negLoc, 'loc_interest', $bank, $notesLoc, $pdo);
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();

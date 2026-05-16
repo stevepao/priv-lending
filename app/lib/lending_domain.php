@@ -1123,6 +1123,46 @@ function checks_monthly_check_already_posted(array $row): bool
 }
 
 /**
+ * Prepare INSERT for cash_events. When scheduled_check_ym exists, statement has seven bound parameters
+ * (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes); otherwise six (no scheduled_check_ym).
+ */
+function cash_event_prepare_insert(PDO $pdo): PDOStatement
+{
+    if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+        return $pdo->prepare(
+            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+    }
+
+    return $pdo->prepare(
+        'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+}
+
+/**
+ * @param int|null    $loanId
+ * @param string|null $scheduledCheckYm Y-m for /checks rows; null for ad-hoc lines (column stored NULL when present)
+ */
+function cash_event_insert(
+    ?int $loanId,
+    ?string $scheduledCheckYm,
+    string $eventDateYmd,
+    string $amount,
+    string $category,
+    ?string $depositTo,
+    ?string $notes,
+    ?PDO $pdo = null
+): void {
+    $pdo = $pdo ?? db();
+    $stmt = cash_event_prepare_insert($pdo);
+    if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
+        $stmt->execute([$loanId, $scheduledCheckYm, $eventDateYmd, $amount, $category, $depositTo, $notes]);
+    } else {
+        $stmt->execute([$loanId, $eventDateYmd, $amount, $category, $depositTo, $notes]);
+    }
+}
+
+/**
  * Insert a funding cash event: principal_out with negative amount (same sign convention as /bank), tied to the loan.
  */
 function loan_insert_funding_principal_out_cash_event(int $loanId, string $principalPosStr, string $eventDateYmd, string $funding, string $loanName): void
@@ -1130,16 +1170,5 @@ function loan_insert_funding_principal_out_cash_event(int $loanId, string $princ
     $p = checks_normalize_money_2($principalPosStr);
     $neg = extension_loaded('bcmath') ? bcmul($p, '-1', 2) : number_format(-(float) $p, 2, '.', '');
     $notes = 'Loan funding (principal_out) — ' . $loanName;
-    $pdo = db();
-    if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
-        $st = $pdo->prepare(
-            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, NULL, ?, ?, ?, ?, ?)'
-        );
-        $st->execute([$loanId, $eventDateYmd, $neg, 'principal_out', $funding, $notes]);
-    } else {
-        $st = $pdo->prepare(
-            'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        $st->execute([$loanId, $eventDateYmd, $neg, 'principal_out', $funding, $notes]);
-    }
+    cash_event_insert($loanId, null, $eventDateYmd, $neg, 'principal_out', $funding, $notes);
 }

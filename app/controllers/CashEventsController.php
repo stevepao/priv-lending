@@ -149,17 +149,7 @@ final class CashEventsController
             }
         }
 
-        if (schema_table_has_column('cash_events', 'scheduled_check_ym')) {
-            $stmt = db()->prepare(
-                'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, NULL, ?, ?, ?, ?, ?)'
-            );
-            $stmt->execute([$loanId, $eventDateRaw, $amountStr, $category, $depositTo, $notes]);
-        } else {
-            $stmt = db()->prepare(
-                'INSERT INTO cash_events (loan_id, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?)'
-            );
-            $stmt->execute([$loanId, $eventDateRaw, $amountStr, $category, $depositTo, $notes]);
-        }
+        cash_event_insert($loanId, null, $eventDateRaw, $amountStr, $category, $depositTo, $notes);
         header('Location: /cash-events');
         exit;
     }

@@ -328,9 +328,7 @@ final class ChecksController
         }
 
         $pdo = db();
-        $insertCashStmt = $pdo->prepare(
-            'INSERT INTO cash_events (loan_id, scheduled_check_ym, event_date, amount, category, deposit_to, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        );
+        $insertCashStmt = cash_event_prepare_insert($pdo);
         $posted = 0;
         $pdo->beginTransaction();
         try {
