@@ -4,20 +4,18 @@ declare(strict_types=1);
 
 final class DashboardController
 {
-    private const FUNDING_JPM = 'JPM';
-    private const FUNDING_NTRS = 'NTRS';
-
     public function index(): void
     {
         $slices = $this->dashboardRecentThreeMonthSlices();
-        $jpmSection = $this->dashboardLoansSectionForFunding(self::FUNDING_JPM);
-        $ntrsSection = $this->dashboardLoansSectionForFunding(self::FUNDING_NTRS);
+        [$codeJpm, $codeNtrs] = lending_funding_source_values();
+        $jpmSection = $this->dashboardLoansSectionForFunding($codeJpm);
+        $ntrsSection = $this->dashboardLoansSectionForFunding($codeNtrs);
         $jpmLoans = $jpmSection['rows'];
         $jpmLoansTotalBalanceDisp = $jpmSection['totalBalanceDisp'];
         $ntrsLoans = $ntrsSection['rows'];
         $ntrsLoansTotalBalanceDisp = $ntrsSection['totalBalanceDisp'];
-        $jpmMonths = $this->dashboardMonthlyRowsForBank(self::FUNDING_JPM, $slices);
-        $ntrsMonths = $this->dashboardMonthlyRowsForBank(self::FUNDING_NTRS, $slices);
+        $jpmMonths = $this->dashboardMonthlyRowsForBank($codeJpm, $slices);
+        $ntrsMonths = $this->dashboardMonthlyRowsForBank($codeNtrs, $slices);
 
         header('Content-Type: text/html; charset=utf-8');
         render('dashboard_index', [
@@ -65,14 +63,11 @@ final class DashboardController
      */
     private function dashboardLoansSectionForFunding(string $funding): array
     {
-        $openOnlySql = schema_table_has_column('loans', 'closed_date')
-            ? ' AND l.closed_date IS NULL'
-            : '';
         $rows = dbAll(
             'SELECT l.name AS loan_name, e.name AS entity_name, '
             . loan_sql_cash_principal_balance_subquery() . ' AS balance_raw '
             . 'FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
-            . 'WHERE l.funding_source = ?' . $openOnlySql . ' '
+            . 'WHERE l.funding_source = ?' . loan_sql_open_loans_predicate('l') . ' '
             . 'ORDER BY l.origin_date ASC, l.id ASC',
             [$funding]
         );

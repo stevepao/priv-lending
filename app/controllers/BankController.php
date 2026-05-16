@@ -51,7 +51,7 @@ final class BankController
         csrf_verify_or_die();
 
         $bank = (string) ($_POST['bank'] ?? '');
-        if (!in_array($bank, ['JPM', 'NTRS'], true)) {
+        if (!lending_funding_source_is_valid($bank)) {
             header('Location: /bank?invalid=1');
             exit;
         }

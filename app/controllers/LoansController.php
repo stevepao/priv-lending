@@ -158,7 +158,7 @@ final class LoansController
         $prepaidAmtRaw = loan_normalize_decimal_input((string) ($_POST['prepaid_interest_amount'] ?? ''));
         $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
 
-        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
+        if ($entityId < 1 || $name === '' || !lending_funding_source_is_valid($funding) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
             return null;
         }
 

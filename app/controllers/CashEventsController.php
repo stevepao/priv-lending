@@ -135,7 +135,7 @@ final class CashEventsController
 
         $depRaw = trim((string) ($_POST['deposit_to'] ?? ''));
         $depositTo = $depRaw === '' ? null : $depRaw;
-        if ($depositTo !== null && !in_array($depositTo, ['JPM', 'NTRS'], true)) {
+        if ($depositTo !== null && !lending_funding_source_is_valid($depositTo)) {
             $redirectInvalid($validEventDateForRedirect);
         }
 
@@ -257,7 +257,7 @@ final class CashEventsController
 
         $depRaw = trim((string) ($_POST['deposit_to'] ?? ''));
         $depositTo = $depRaw === '' ? null : $depRaw;
-        if ($depositTo !== null && !in_array($depositTo, ['JPM', 'NTRS'], true)) {
+        if ($depositTo !== null && !lending_funding_source_is_valid($depositTo)) {
             $redirectInvalid($id);
         }
 

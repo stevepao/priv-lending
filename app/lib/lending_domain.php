@@ -3,6 +3,34 @@
 declare(strict_types=1);
 
 /**
+ * Allowed `funding_source` / `deposit_to` bank codes (application layer; DB ENUM must match).
+ * Order is stable: JPM first, NTRS second (e.g. dashboard columns).
+ *
+ * @return list<string>
+ */
+function lending_funding_source_values(): array
+{
+    return ['JPM', 'NTRS'];
+}
+
+function lending_funding_source_is_valid(string $value): bool
+{
+    return in_array($value, lending_funding_source_values(), true);
+}
+
+/**
+ * Normalize deposit_to / funding_source for map keys (empty string when null or '').
+ */
+function lending_bank_key(mixed $depositTo): string
+{
+    if ($depositTo === null || (string) $depositTo === '') {
+        return '';
+    }
+
+    return (string) $depositTo;
+}
+
+/**
  * Monthly interest on full principal at the stated annual rate (no amortization).
  * Formula: principal_amount * (annual_interest_rate / 100) / 12
  */
@@ -711,6 +739,18 @@ function loan_sql_cash_principal_balance_subquery(bool $withEventDateOnOrBefore 
 }
 
 /**
+ * SQL AND fragment for “open” loans when `closed_date` exists; empty string when the column is absent.
+ */
+function loan_sql_open_loans_predicate(string $alias = 'l'): string
+{
+    if (!schema_table_has_column('loans', 'closed_date')) {
+        return '';
+    }
+
+    return ' AND ' . $alias . '.closed_date IS NULL';
+}
+
+/**
  * Sum of cash_events.amount for principal_in and principal_out for one loan (same as loans list; 2 dp).
  */
 function loan_cash_principal_ledger_balance_raw(int $loanId): string
@@ -1075,7 +1115,7 @@ function checks_expected_payment_interest_principal_split_for_row(array $row, st
 function checks_funding_source_for_row(array $row): ?string
 {
     $f = (string) ($row['funding_source'] ?? '');
-    if (!in_array($f, ['JPM', 'NTRS'], true)) {
+    if (!lending_funding_source_is_valid($f)) {
         return null;
     }
 

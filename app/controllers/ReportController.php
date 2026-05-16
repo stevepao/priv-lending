@@ -101,15 +101,6 @@ final class ReportController
         ];
     }
 
-    private function depositToKey(mixed $depositTo): string
-    {
-        if ($depositTo === null || (string) $depositTo === '') {
-            return '';
-        }
-
-        return (string) $depositTo;
-    }
-
     private function loanSegmentKey(mixed $loanId): string
     {
         if ($loanId === null || $loanId === '') {
@@ -149,7 +140,7 @@ final class ReportController
         $weights = [];
         foreach ($this->loanLedgerRowsForLocAllocationAsOf($balanceAsOfYmd) as $r) {
             $seg = $this->loanSegmentKey($r['loan_id'] ?? null);
-            $bk = $this->depositToKey($r['funding_source'] ?? null);
+            $bk = lending_bank_key($r['funding_source'] ?? null);
             $w = report_principal_ledger_balance_weight((string) ($r['balance_raw'] ?? '0'));
             if (!isset($weights[$seg])) {
                 $weights[$seg] = [];
@@ -169,7 +160,7 @@ final class ReportController
         $weights = [];
         foreach ($this->loanLedgerRowsForLocAllocationAsOf($balanceAsOfYmd) as $r) {
             $seg = $this->entitySegmentKey($r['entity_id'] ?? null);
-            $bk = $this->depositToKey($r['funding_source'] ?? null);
+            $bk = lending_bank_key($r['funding_source'] ?? null);
             $w = report_principal_ledger_balance_weight((string) ($r['balance_raw'] ?? '0'));
             if (!isset($weights[$seg])) {
                 $weights[$seg] = [];
@@ -204,7 +195,7 @@ final class ReportController
             );
             $monthPools = [];
             foreach ($rows as $r) {
-                $k = $this->depositToKey($r['deposit_to'] ?? null);
+                $k = lending_bank_key($r['deposit_to'] ?? null);
                 $monthPools[$k] = report_loc_interest_pool_positive((string) ($r['loc_sum'] ?? '0'));
             }
             if ($monthPools === []) {
