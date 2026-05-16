@@ -59,12 +59,15 @@ final class DashboardController
      */
     private function dashboardLoanRowsForFunding(string $funding): array
     {
+        $openOnlySql = schema_table_has_column('loans', 'closed_date')
+            ? ' AND l.closed_date IS NULL'
+            : '';
         $rows = dbAll(
             'SELECT l.name AS loan_name, e.name AS entity_name, '
             . '(SELECT COALESCE(SUM(ce.amount), 0) FROM cash_events ce '
             . 'WHERE ce.loan_id = l.id AND ce.category IN (\'principal_in\', \'principal_out\')) AS balance_raw '
             . 'FROM loans l INNER JOIN entities e ON e.id = l.entity_id '
-            . 'WHERE l.funding_source = ? '
+            . 'WHERE l.funding_source = ?' . $openOnlySql . ' '
             . 'ORDER BY l.origin_date ASC, l.id ASC',
             [$funding]
         );
