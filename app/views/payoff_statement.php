@@ -1,54 +1,82 @@
 <?php require __DIR__ . '/partials/layout_head.php'; ?>
 <?php
-/** @var string $loanLabel */
-/** @var int $loanId */
-/** @var string $dateQuoted */
-/** @var string $payoffGoodThru */
+/** @var string $title */
+/** @var string $entityName */
+/** @var string $borrowerName */
+/** @var string $borrowerAddress */
+/** @var string $borrowerCityStateZip */
+/** @var string $propertyLine */
 /** @var string $dateQuotedDisp */
 /** @var string $payoffGoodThruDisp */
-/** @var string $fullStartDisp */
-/** @var string $fullEndDisp */
-/** @var string $perdiemStartDisp */
-/** @var string $perdiemEndDisp */
+/** @var string $interestFullRange */
+/** @var string $interestPerdiemRange */
 /** @var string $principalDisp */
 /** @var string $fullInterestDisp */
 /** @var string $perdiemInterestDisp */
 /** @var string $totalDueDisp */
 /** @var string $dailyRateDisp */
-/** @var int $daysInclusive */
 ?>
-<div class="mx-auto max-w-2xl space-y-6">
-<h1 class="text-2xl font-semibold tracking-tight text-slate-900">LOAN PAYOFF STATEMENT</h1>
-<p class="text-sm text-slate-600"><?php echo e($loanLabel); ?> <span class="text-slate-400">(id <?php echo e((string) $loanId); ?>)</span></p>
-<div class="space-y-4 rounded border border-slate-200 bg-white p-5 text-sm shadow-sm text-slate-800">
-<div class="grid gap-1 sm:grid-cols-2 sm:gap-x-4">
-<div class="text-slate-600">Date quoted</div>
-<div class="font-medium"><?php echo e($dateQuotedDisp); ?></div>
-<div class="text-slate-600">Payoff good through</div>
-<div class="font-medium"><?php echo e($payoffGoodThruDisp); ?></div>
+<div class="mx-auto max-w-3xl space-y-8 px-4 py-6 text-slate-900 print:max-w-none print:px-0">
+<div class="flex flex-col justify-between gap-10 sm:flex-row sm:gap-16">
+<div class="space-y-0.5 text-sm leading-snug">
+<?php if (LENDER_NAME !== ''): ?>
+<div class="font-semibold"><?php echo e(LENDER_NAME); ?></div>
+<?php endif; ?>
+<?php if (LENDER_ADDRESS !== ''): ?>
+<div><?php echo e(LENDER_ADDRESS); ?></div>
+<?php endif; ?>
+<?php
+if (LENDER_CITY !== '' || LENDER_STATE !== '' || LENDER_ZIP !== '') {
+    $lenderParts = [];
+    if (LENDER_CITY !== '') {
+        $lenderParts[] = LENDER_CITY;
+    }
+    $stZip = trim(LENDER_STATE . ' ' . LENDER_ZIP);
+    if ($stZip !== '') {
+        $lenderParts[] = $stZip;
+    }
+    $lenderCityStateZipLine = implode(', ', $lenderParts);
+    ?>
+<div><?php echo e($lenderCityStateZipLine); ?></div>
+<?php
+}
+?>
+<?php if (LENDER_EMAIL !== ''): ?>
+<div><?php echo e(LENDER_EMAIL); ?></div>
+<?php endif; ?>
+<?php if (LENDER_PHONE !== ''): ?>
+<div><?php echo e(LENDER_PHONE); ?></div>
+<?php endif; ?>
 </div>
-<hr class="border-slate-200">
-<div class="flex flex-wrap justify-between gap-2 border-b border-slate-100 py-2">
-<span class="text-slate-700">Principal</span>
-<span class="font-mono tabular-nums font-semibold text-slate-900"><?php echo e($principalDisp); ?></span>
-</div>
-<div class="flex flex-wrap justify-between gap-2 border-b border-slate-100 py-2">
-<span class="text-slate-700">Interest — <?php echo e($fullStartDisp); ?> thru <?php echo e($fullEndDisp); ?></span>
-<span class="font-mono tabular-nums text-slate-900"><?php echo e($fullInterestDisp); ?></span>
-</div>
-<div class="flex flex-wrap justify-between gap-2 border-b border-slate-100 py-2">
-<span class="text-slate-700">Interest — <?php echo e($perdiemStartDisp); ?> thru <?php echo e($perdiemEndDisp); ?> <span class="whitespace-nowrap text-xs font-normal text-slate-500">(<?php echo e((string) $daysInclusive); ?> day<?php echo $daysInclusive === 1 ? '' : 's'; ?>)</span></span>
-<span class="font-mono tabular-nums text-slate-900"><?php echo e($perdiemInterestDisp); ?></span>
-</div>
-<div class="flex flex-wrap justify-between gap-2 border-b border-slate-200 py-3">
-<span class="font-semibold text-slate-900">Total amount due</span>
-<span class="font-mono tabular-nums text-lg font-semibold text-slate-900"><?php echo e($totalDueDisp); ?></span>
-</div>
-<div class="flex flex-wrap justify-between gap-2 pt-1">
-<span class="text-slate-600">Daily interest rate</span>
-<span class="font-mono tabular-nums text-slate-800"><?php echo e($dailyRateDisp); ?> <span class="text-xs font-normal text-slate-500">per day</span></span>
+<div class="space-y-0.5 text-sm leading-snug sm:text-right">
+<?php if ($entityName !== ''): ?>
+<div class="font-semibold"><?php echo e($entityName); ?></div>
+<?php endif; ?>
+<?php if ($borrowerAddress !== ''): ?>
+<div><?php echo e($borrowerAddress); ?></div>
+<?php endif; ?>
+<?php if ($borrowerCityStateZip !== ''): ?>
+<div><?php echo e($borrowerCityStateZip); ?></div>
+<?php endif; ?>
+<?php if ($borrowerName !== ''): ?>
+<div>Attn: <?php echo e($borrowerName); ?></div>
+<?php endif; ?>
 </div>
 </div>
-<p><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900" href="/payoff">← Back to payoff form</a></p>
+
+<h1 class="text-center text-xl font-bold tracking-wide">LOAN PAYOFF STATEMENT</h1>
+
+<div class="mx-auto max-w-xl space-y-3 text-sm">
+<div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Date quoted:</span><span class="text-right tabular-nums"><?php echo e($dateQuotedDisp); ?></span></div>
+<div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Payoff good to:</span><span class="text-right tabular-nums"><?php echo e($payoffGoodThruDisp); ?></span></div>
+<div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Property:</span><span class="text-right"><?php echo e($propertyLine); ?></span></div>
+<div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Principal</span><span class="font-medium text-right tabular-nums"><?php echo e($principalDisp); ?></span></div>
+<div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Interest - <?php echo e($interestFullRange); ?></span><span class="text-right tabular-nums"><?php echo e($fullInterestDisp); ?></span></div>
+<div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Interest - <?php echo e($interestPerdiemRange); ?></span><span class="text-right tabular-nums"><?php echo e($perdiemInterestDisp); ?></span></div>
+<div class="flex justify-between gap-6 border-b border-slate-200 py-3"><span class="font-semibold">Total amount due:</span><span class="font-semibold text-right tabular-nums"><?php echo e($totalDueDisp); ?></span></div>
+<div class="flex justify-between gap-6 py-2"><span>Daily interest rate</span><span class="text-right tabular-nums"><?php echo e($dailyRateDisp); ?></span></div>
+</div>
+
+<p class="pt-4 text-center sm:text-left"><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900 print:hidden" href="/payoff">← Back to payoff form</a></p>
 </div>
 <?php require __DIR__ . '/partials/layout_foot.php'; ?>

@@ -73,9 +73,14 @@ final class PayoffController
             ? 'l.principal_payment_monthly'
             : 'CAST(NULL AS DECIMAL(12,2)) AS principal_payment_monthly';
         $stmt = db()->prepare(
-            'SELECT l.name AS loan_name, e.name AS entity_name, l.origin_date, l.principal_amount, l.annual_interest_rate, '
+            'SELECT l.name AS loan_name, l.notes AS loan_notes, e.name AS entity_name, '
+            . 'b.name AS borrower_name, b.address AS borrower_address, b.city AS borrower_city, b.state AS borrower_state, b.zip AS borrower_zip, '
+            . 'l.origin_date, l.principal_amount, l.annual_interest_rate, '
             . $monthlySel . ', ' . $icmSel . ', ' . $ppmSel
-            . ' FROM loans l INNER JOIN entities e ON e.id = l.entity_id WHERE l.id = ?'
+            . ' FROM loans l '
+            . 'INNER JOIN entities e ON e.id = l.entity_id '
+            . 'INNER JOIN borrowers b ON b.id = e.borrower_id '
+            . 'WHERE l.id = ?'
         );
         $stmt->execute([$loanId]);
         $loanRow = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -129,27 +134,41 @@ final class PayoffController
 
         $totalDue = checks_add_money_2(checks_add_money_2($principalBalance, $fullInterestAmount), $perdiemInterestAmount);
 
-        $loanLabel = (string) ($loanRow['entity_name'] ?? '') . ' — ' . (string) ($loanRow['loan_name'] ?? '');
+        $loanName = trim((string) ($loanRow['loan_name'] ?? ''));
+        $loanNotes = $loanRow['loan_notes'] !== null && (string) $loanRow['loan_notes'] !== '' ? trim((string) $loanRow['loan_notes']) : '';
+        $propertyLine = $loanName !== '' ? $loanName : $loanNotes;
+
+        $entityName = trim((string) ($loanRow['entity_name'] ?? ''));
+        $borrowerName = trim((string) ($loanRow['borrower_name'] ?? ''));
+        $borrowerAddress = $loanRow['borrower_address'] !== null && (string) $loanRow['borrower_address'] !== '' ? trim((string) $loanRow['borrower_address']) : '';
+        $borrowerCityStateZip = self::payoffBorrowerCityStateZipLine(
+            $loanRow['borrower_city'] ?? null,
+            $loanRow['borrower_state'] ?? null,
+            $loanRow['borrower_zip'] ?? null
+        );
+
+        $fullStartMd = self::payoffFormatDateMdY($fullStart->format('Y-m-d'));
+        $fullEndMd = self::payoffFormatDateMdY($fullEnd->format('Y-m-d'));
+        $perdiemStartMd = self::payoffFormatDateMdY($perdiemStart->format('Y-m-d'));
+        $perdiemEndMd = self::payoffFormatDateMdY($perdiemEnd->format('Y-m-d'));
 
         header('Content-Type: text/html; charset=utf-8');
         render('payoff_statement', [
             'title' => 'Loan payoff statement',
-            'loanLabel' => $loanLabel,
-            'loanId' => $loanId,
-            'dateQuoted' => $dateQuoted,
-            'payoffGoodThru' => $payoffGoodThru,
-            'dateQuotedDisp' => self::payoffFormatDateLong($dateQuoted),
-            'payoffGoodThruDisp' => self::payoffFormatDateLong($payoffGoodThru),
-            'fullStartDisp' => self::payoffFormatDateLong($fullStart->format('Y-m-d')),
-            'fullEndDisp' => self::payoffFormatDateLong($fullEnd->format('Y-m-d')),
-            'perdiemStartDisp' => self::payoffFormatDateLong($perdiemStart->format('Y-m-d')),
-            'perdiemEndDisp' => self::payoffFormatDateLong($perdiemEnd->format('Y-m-d')),
-            'principalDisp' => checks_format_money_display_2($principalBalance),
-            'fullInterestDisp' => checks_format_money_display_2($fullInterestAmount),
-            'perdiemInterestDisp' => checks_format_money_display_2($perdiemInterestAmount),
-            'totalDueDisp' => checks_format_money_display_2($totalDue),
-            'dailyRateDisp' => checks_format_money_display_2(checks_normalize_money_2($dailyRate)),
-            'daysInclusive' => $daysInclusive,
+            'entityName' => $entityName,
+            'borrowerName' => $borrowerName,
+            'borrowerAddress' => $borrowerAddress,
+            'borrowerCityStateZip' => $borrowerCityStateZip,
+            'propertyLine' => $propertyLine,
+            'dateQuotedDisp' => self::payoffFormatDateMdY($dateQuoted),
+            'payoffGoodThruDisp' => self::payoffFormatDateMdY($payoffGoodThru),
+            'interestFullRange' => $fullStartMd . ' - ' . $fullEndMd,
+            'interestPerdiemRange' => $perdiemStartMd . ' - ' . $perdiemEndMd,
+            'principalDisp' => self::payoffFormatMoneyUsd($principalBalance),
+            'fullInterestDisp' => self::payoffFormatMoneyUsd($fullInterestAmount),
+            'perdiemInterestDisp' => self::payoffFormatMoneyUsd($perdiemInterestAmount),
+            'totalDueDisp' => self::payoffFormatMoneyUsd($totalDue),
+            'dailyRateDisp' => self::payoffFormatMoneyUsd(checks_normalize_money_2($dailyRate)),
         ]);
     }
 
@@ -214,10 +233,43 @@ final class PayoffController
         return number_format(round((float) $moneyPerDayHighPrecision * $days, 2, PHP_ROUND_HALF_UP), 2, '.', '');
     }
 
-    private static function payoffFormatDateLong(string $ymd): string
+    /** US-style M/D/YYYY for payoff statement (no leading zeros on month/day). */
+    private static function payoffFormatDateMdY(string $ymd): string
     {
         $d = DateTimeImmutable::createFromFormat('Y-m-d', $ymd);
 
-        return $d instanceof DateTimeImmutable ? $d->format('M j, Y') : $ymd;
+        return $d instanceof DateTimeImmutable ? $d->format('n/j/Y') : $ymd;
+    }
+
+    /** Money as $#,##0.00 */
+    private static function payoffFormatMoneyUsd(string $normalizedTwoDp): string
+    {
+        $n = checks_normalize_money_2($normalizedTwoDp);
+
+        return '$' . number_format((float) $n, 2, '.', ',');
+    }
+
+    /**
+     * @param mixed $city
+     * @param mixed $state
+     * @param mixed $zip
+     */
+    private static function payoffBorrowerCityStateZipLine($city, $state, $zip): string
+    {
+        $c = trim((string) ($city ?? ''));
+        $s = trim((string) ($state ?? ''));
+        $z = trim((string) ($zip ?? ''));
+        $stZip = trim($s . ' ' . $z);
+        if ($c === '' && $stZip === '') {
+            return '';
+        }
+        if ($c === '') {
+            return $stZip;
+        }
+        if ($stZip === '') {
+            return $c;
+        }
+
+        return $c . ', ' . $stZip;
     }
 }
