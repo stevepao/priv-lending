@@ -1,7 +1,9 @@
 <?php require __DIR__ . '/partials/layout_head.php'; ?>
 <?php
 /** @var list<array{entityName: string, loanName: string, balanceDisp: string}> $jpmLoans */
+/** @var string $jpmLoansTotalBalanceDisp */
 /** @var list<array{entityName: string, loanName: string, balanceDisp: string}> $ntrsLoans */
+/** @var string $ntrsLoansTotalBalanceDisp */
 /** @var list<array{monthLabel: string, interestDisp: string, locDisp: string, principalInDisp: string}> $jpmMonths */
 /** @var list<array{monthLabel: string, interestDisp: string, locDisp: string, principalInDisp: string}> $ntrsMonths */
 ?>
@@ -36,6 +38,10 @@
 <td class="py-2 text-right font-mono tabular-nums italic text-slate-800"><?php echo e($lr['balanceDisp']); ?></td>
 </tr>
 <?php endforeach; ?>
+<tr class="border-t-2 border-slate-300 bg-slate-50 font-semibold">
+<td class="py-2 pr-3 text-slate-900" colspan="2">Total balance</td>
+<td class="py-2 text-right font-mono tabular-nums italic text-slate-900"><?php echo e($jpmLoansTotalBalanceDisp); ?></td>
+</tr>
 <?php endif; ?>
 </tbody></table></div>
 <h3 class="mt-6 text-xs font-medium uppercase tracking-wide text-slate-500">Recent months</h3>
@@ -81,6 +87,10 @@
 <td class="py-2 text-right font-mono tabular-nums italic text-slate-800"><?php echo e($lr['balanceDisp']); ?></td>
 </tr>
 <?php endforeach; ?>
+<tr class="border-t-2 border-slate-300 bg-slate-50 font-semibold">
+<td class="py-2 pr-3 text-slate-900" colspan="2">Total balance</td>
+<td class="py-2 text-right font-mono tabular-nums italic text-slate-900"><?php echo e($ntrsLoansTotalBalanceDisp); ?></td>
+</tr>
 <?php endif; ?>
 </tbody></table></div>
 <h3 class="mt-6 text-xs font-medium uppercase tracking-wide text-slate-500">Recent months</h3>

@@ -10,8 +10,12 @@ final class DashboardController
     public function index(): void
     {
         $slices = $this->dashboardRecentThreeMonthSlices();
-        $jpmLoans = $this->dashboardLoanRowsForFunding(self::FUNDING_JPM);
-        $ntrsLoans = $this->dashboardLoanRowsForFunding(self::FUNDING_NTRS);
+        $jpmSection = $this->dashboardLoansSectionForFunding(self::FUNDING_JPM);
+        $ntrsSection = $this->dashboardLoansSectionForFunding(self::FUNDING_NTRS);
+        $jpmLoans = $jpmSection['rows'];
+        $jpmLoansTotalBalanceDisp = $jpmSection['totalBalanceDisp'];
+        $ntrsLoans = $ntrsSection['rows'];
+        $ntrsLoansTotalBalanceDisp = $ntrsSection['totalBalanceDisp'];
         $jpmMonths = $this->dashboardMonthlyRowsForBank(self::FUNDING_JPM, $slices);
         $ntrsMonths = $this->dashboardMonthlyRowsForBank(self::FUNDING_NTRS, $slices);
 
@@ -20,7 +24,9 @@ final class DashboardController
             'title' => 'Dashboard',
             'heading' => 'Dashboard',
             'jpmLoans' => $jpmLoans,
+            'jpmLoansTotalBalanceDisp' => $jpmLoansTotalBalanceDisp,
             'ntrsLoans' => $ntrsLoans,
+            'ntrsLoansTotalBalanceDisp' => $ntrsLoansTotalBalanceDisp,
             'jpmMonths' => $jpmMonths,
             'ntrsMonths' => $ntrsMonths,
         ]);
@@ -55,9 +61,9 @@ final class DashboardController
     }
 
     /**
-     * @return list<array{entityName: string, loanName: string, balanceDisp: string}>
+     * @return array{rows: list<array{entityName: string, loanName: string, balanceDisp: string}>, totalBalanceDisp: string}
      */
-    private function dashboardLoanRowsForFunding(string $funding): array
+    private function dashboardLoansSectionForFunding(string $funding): array
     {
         $openOnlySql = schema_table_has_column('loans', 'closed_date')
             ? ' AND l.closed_date IS NULL'
@@ -72,8 +78,10 @@ final class DashboardController
             [$funding]
         );
         $out = [];
+        $total = '0.00';
         foreach ($rows as $r) {
             $bal = checks_normalize_money_2((string) ($r['balance_raw'] ?? '0'));
+            $total = checks_add_money_2($total, $bal);
             $out[] = [
                 'entityName' => (string) ($r['entity_name'] ?? ''),
                 'loanName' => (string) ($r['loan_name'] ?? ''),
@@ -81,7 +89,10 @@ final class DashboardController
             ];
         }
 
-        return $out;
+        return [
+            'rows' => $out,
+            'totalBalanceDisp' => checks_format_money_display_2($total),
+        ];
     }
 
     /**
