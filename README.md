@@ -4,6 +4,8 @@ A small PHP application to support **direct private lending** workflows (borrowe
 
 **Copyright © 2026 Hillwork, LLC.** Licensed under the [MIT License](LICENSE).
 
+**Current release:** **v0.1.0** — see [CHANGELOG.md](CHANGELOG.md). To publish a version on GitHub, push an annotated tag (e.g. `v0.1.0`) and open **Releases → Draft a new release** with notes copied from the changelog; see the checklist below.
+
 ---
 
 ## Requirements
@@ -192,6 +194,37 @@ git push -u origin main
 ### C. Confirm on GitHub
 
 Refresh the repository page; you should see `README.md`, `LICENSE`, and the rest of the tree. Check **Settings → General** if you want to add a description, website, or topics (e.g. `php`, `private-lending`, `mysql`).
+
+---
+
+## Publishing a versioned release (GitHub)
+
+After you commit and push `CHANGELOG.md`, `composer.json`, and any other changes for the release:
+
+### On your machine
+
+1. Ensure `main` is pushed: `git push origin main`
+2. Create an **annotated** tag:  
+   `git tag -a v0.1.0 -m "v0.1.0"`  
+   (Use the same version as in `CHANGELOG.md` and `composer.json`.)
+3. Push the tag:  
+   `git push origin v0.1.0`
+
+### On github.com
+
+1. Open your repository → **Releases** (or **Tags**) → **Draft a new release**.
+2. **Choose a tag:** select `v0.1.0` (create from the tag you pushed if GitHub offers it).
+3. **Release title:** e.g. `v0.1.0`.
+4. **Describe this release:** paste or adapt the **0.1.0** section from [CHANGELOG.md](CHANGELOG.md). Add a short **Install** blurb for upgraders, e.g.  
+   - PHP 8.1+, MySQL 8.x  
+   - `composer install --no-dev`  
+   - `cp .env.example .env` and configure  
+   - `php bin/migrate.php`  
+   - Web root = **`public/`**
+5. Leave **Set as the latest release** checked (for the newest line).
+6. **Publish release.**
+
+GitHub will show the release on the repo home page and attach **Source code (zip/tar)** automatically. You do not need to upload a separate binary for this PHP app.
 
 ---
 

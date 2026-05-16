@@ -1,6 +1,7 @@
 {
     "name": "priv-lending/app",
     "description": "Private lending app",
+    "version": "0.1.0",
     "require": {
         "php": ">=8.1",
         "phpmailer/phpmailer": "^6.9"
