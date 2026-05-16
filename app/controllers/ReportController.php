@@ -135,9 +135,7 @@ final class ReportController
     {
         return dbAll(
             'SELECT l.id AS loan_id, l.entity_id, l.funding_source, '
-            . '(SELECT COALESCE(SUM(ce.amount), 0) FROM cash_events ce '
-            . 'WHERE ce.loan_id = l.id AND ce.category IN (\'principal_in\', \'principal_out\') '
-            . 'AND ce.event_date <= ?) AS balance_raw '
+            . loan_sql_cash_principal_balance_subquery(true) . ' AS balance_raw '
             . 'FROM loans l',
             [$balanceAsOfYmd]
         );

@@ -696,10 +696,18 @@ function loan_principal_and_annual_for_prepaid_save(string $principalRaw, string
  * SQL scalar subquery (correlated on outer alias `l.id`) for principal ledger balance from cash_events.
  * Sums amount for categories principal_in and principal_out only (funding stored negative, repayments positive;
  * net zero when fully repaid).
+ *
+ * @param bool $withEventDateOnOrBefore When true, adds `AND ce.event_date <= ?`; the outer query must bind one value (Y-m-d as-of date).
  */
-function loan_sql_cash_principal_balance_subquery(): string
+function loan_sql_cash_principal_balance_subquery(bool $withEventDateOnOrBefore = false): string
 {
-    return "(SELECT COALESCE(SUM(ce.amount), 0) FROM cash_events ce WHERE ce.loan_id = l.id AND ce.category IN ('principal_in', 'principal_out'))";
+    $inner = 'SELECT COALESCE(SUM(ce.amount), 0) FROM cash_events ce '
+        . "WHERE ce.loan_id = l.id AND ce.category IN ('principal_in', 'principal_out')";
+    if ($withEventDateOnOrBefore) {
+        $inner .= ' AND ce.event_date <= ?';
+    }
+
+    return '(' . $inner . ')';
 }
 
 /**
