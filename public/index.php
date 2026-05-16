@@ -12,6 +12,10 @@ if (!extension_loaded('pdo') || !extension_loaded('pdo_mysql')) {
 $projectRoot = dirname(__DIR__);
 
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'env.php';
+$autoload = $projectRoot . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+if (is_readable($autoload)) {
+    require_once $autoload;
+}
 $showErrorDetail = filter_var((string) env('APP_DEBUG', ''), FILTER_VALIDATE_BOOLEAN);
 if ($showErrorDetail) {
     ini_set('display_errors', '1');
@@ -56,8 +60,14 @@ $routes = [
     'GET /login' => static function (): void {
         (new AuthController())->loginForm();
     },
-    'POST /login' => static function (): void {
-        (new AuthController())->login();
+    'GET /login/cancel' => static function (): void {
+        (new AuthController())->cancelPending();
+    },
+    'POST /login/request-otp' => static function (): void {
+        (new AuthController())->requestOtp();
+    },
+    'POST /login/verify' => static function (): void {
+        (new AuthController())->verifyOtp();
     },
     'POST /logout' => static function (): void {
         (new AuthController())->logout();
@@ -144,7 +154,8 @@ $routes = [
         (new LoansController())->update();
     },
 ];
-if ($routeKey !== 'GET /login' && $routeKey !== 'POST /login') {
+$publicAuthRoutes = ['GET /login', 'GET /login/cancel', 'POST /login/request-otp', 'POST /login/verify'];
+if (!in_array($routeKey, $publicAuthRoutes, true)) {
     require_login();
 }
 

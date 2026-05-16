@@ -2,6 +2,8 @@
 .env.*
 !.env.example
 /storage
+/vendor
+composer.phar
 
 # macOS
 .DS_Store

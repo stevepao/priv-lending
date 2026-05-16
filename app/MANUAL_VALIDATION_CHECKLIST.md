@@ -4,8 +4,15 @@
 
 1. `app/controllers/ChecksController.php` exists; `app/views/checks.php` exists.
 2. `app/controllers/LoansController.php` exists; `app/views/loans.php` and `app/views/loans_new.php` exist.
-3. `public/index.php` bootstraps unchanged (env, session, csrf, security headers, `e()`, `db`, helpers, `render()`).
+3. `public/index.php` bootstraps env, optional Composer `vendor/autoload.php`, session, csrf, security headers, `e()`, `db`, helpers, `render()`.
 4. `ChecksController` and `LoansController` are each required once from `public/index.php` before the route table.
+
+## Login (email OTP + SMTP)
+
+- **Setup** — Run `composer install` at project root (PHPMailer). Apply migration **`0010_login_otps.sql`**. Configure `.env` (see `.env.example`): `AUTH_ALLOWED_EMAILS` (comma-separated), `OTP_TTL_SECONDS`, SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_ENCRYPTION`, `SMTP_USERNAME`, `SMTP_PASSWORD`), `MAIL_FROM_ADDRESS`, optional `MAIL_FROM_NAME`, optional rate-limit keys.
+1. **GET /login** — Email field; **Email me a code** posts to **POST /login/request-otp** (CSRF). Allowed address receives 6-digit code; same neutral copy if address is not allowed.
+2. **GET /login** (after code sent) — OTP field; **Sign in** posts to **POST /login/verify** (CSRF). Success redirects `/`. **Use a different email** → **GET /login/cancel** clears pending OTP session state.
+3. **POST /logout** — CSRF; session cleared; redirect **GET /login**.
 
 ## GET /checks (ChecksController + view)
 
@@ -53,4 +60,4 @@ Run logged in, with migrations applied if you use posting / Posted status.
 ## Other routes
 
 24. **GET /** — **Dashboard** intro explains the app; two-column layout on large screens (**JPM** | **NTRS**): each column lists **open** loans only for that funding source (origin date ascending) with **Balance** (cash principal ledger); below, **Recent months** (three rows: two prior full calendar months + current month through today) with **Interest**, **LOC interest** (positive expense), **Principal in** from cash events with matching **Deposit to**. Stacked on small screens. **Quick links** (same order as main nav, excluding Dashboard) below. Nav includes **Bank** and **Report** when present.
-25. **`php -l public/index.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
+25. **`php -l public/index.php`**, **`php -l app/controllers/AuthController.php`**, **`php -l app/lib/auth_email.php`**, **`php -l app/controllers/ChecksController.php`**, **`php -l app/views/checks.php`**, **`php -l app/controllers/LoansController.php`**, **`php -l app/views/loans.php`**, **`php -l app/views/loans_new.php`** — No syntax errors.
