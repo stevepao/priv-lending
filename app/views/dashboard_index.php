@@ -41,6 +41,7 @@ foreach (
 <a class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm shadow-sm transition hover:border-slate-300 hover:bg-white" href="/entities"><span class="block font-medium text-slate-900">Entities</span><span class="mt-0.5 block text-xs text-slate-500">Borrowing entities</span></a>
 <a class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm shadow-sm transition hover:border-slate-300 hover:bg-white" href="/borrowers"><span class="block font-medium text-slate-900">Borrowers</span><span class="mt-0.5 block text-xs text-slate-500">People you lend to</span></a>
 <a class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm shadow-sm transition hover:border-slate-300 hover:bg-white" href="/report"><span class="block font-medium text-slate-900">Report</span><span class="mt-0.5 block text-xs text-slate-500">Date-range totals</span></a>
+<a class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm shadow-sm transition hover:border-slate-300 hover:bg-white" href="/payoff"><span class="block font-medium text-slate-900">Payoff</span><span class="mt-0.5 block text-xs text-slate-500">Loan payoff statements</span></a>
 </div>
 </section>
 </div>

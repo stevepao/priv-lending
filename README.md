@@ -1,50 +1,66 @@
 # priv-lending
 
-A small PHP application to support **direct private lending** workflows (borrowers, entities, loans, and related records). It is intended for personal use by the operator, not as a multi-tenant SaaS product.
+A small PHP application for **direct private lending** workflows: borrowers, borrowing entities, loans, cash events, monthly checks, reporting, and payoff statements. It is meant for **personal use by the operator**, not as a multi-tenant product.
 
 **Copyright © 2026 Hillwork, LLC.** Licensed under the [MIT License](LICENSE).
 
-**Current release:** **v0.1.0** — see [CHANGELOG.md](CHANGELOG.md). To publish a version on GitHub, push an annotated tag (e.g. `v0.1.0`) and open **Releases → Draft a new release** with notes copied from the changelog; see the checklist below.
+**Version history:** see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## Requirements
+## What you need
 
-- **PHP** 8.1+ with extensions `pdo`, `pdo_mysql`, `session`, and `json`. In the control panel, pick that version for the **domain** (not only for SSH/CLI).
-- **MySQL** 8.x (or compatible) with a database you control
-- A web server that can run PHP and, for clean URLs, **rewrite** requests to `public/index.php` (Apache `mod_rewrite` is configured in `public/.htaccess`)
+- **PHP** 8.1+ with extensions `pdo`, `pdo_mysql`, `session`, `json`, and `mbstring` (recommended for mail/CSS libs). In hosting panels, select this version for the **site** (not only CLI).
+- **Composer** on the machine where you install dependencies (or run `composer install` locally and deploy `vendor/`).
+- **MySQL** 8.x (or compatible) and a database you control.
+- A web server whose **document root** is the `public/` directory (see below). For clean URLs, configure rewrites like `public/.htaccess` (Apache) or an equivalent `try_files` rule (nginx).
 
 ---
 
-## Quick start (local)
+## Install and run
 
-### 1. Clone the repository
+### 1. Get the application
+
+Use a release archive, or clone/pull your copy of the repository into a directory on the server (or your local machine).
+
+### 2. Dependencies
+
+From the project root:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/priv-lending.git
-cd priv-lending
+composer install --no-dev
 ```
 
-### 2. Environment file
+(Use `composer install` if you want dev tooling.) This pulls PHP libraries used for email sign-in and PDF payoff statements, among other things.
+
+### 3. Environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set at least:
+Edit `.env`. At minimum set **database** credentials:
 
-| Variable   | Description        |
-|-----------|--------------------|
-| `DB_HOST` | MySQL host         |
-| `DB_NAME` | Database name      |
-| `DB_USER` | MySQL user         |
-| `DB_PASS` | MySQL password     |
+| Variable   | Description   |
+|------------|---------------|
+| `DB_HOST`  | MySQL host    |
+| `DB_NAME`  | Database name |
+| `DB_USER`  | MySQL user    |
+| `DB_PASS`  | MySQL password |
 
-`APP_ENV` is optional. **`APP_DEBUG=true`** turns on on-screen PHP errors (use only while debugging). **`DISABLE_CSP=true`** skips the Content-Security-Policy header if your host objects to it.
+Useful optional settings:
 
-### 3. Create the database
+| Variable | Purpose |
+|----------|---------|
+| `APP_DEBUG` | `true` only while debugging (shows PHP errors in the browser). |
+| `DISABLE_CSP` | `true` if your host breaks pages due to Content-Security-Policy. |
+| `LENDER_*` | Name, address, phone, email for payoff statement letterhead (see `.env.example`). |
 
-Create an empty schema in MySQL (example):
+**Sign-in** is email OTP: set `AUTH_ALLOWED_EMAILS`, SMTP variables, and `MAIL_FROM_*` as documented in `.env.example`.
+
+### 4. Database
+
+Create an empty schema (example):
 
 ```sql
 CREATE DATABASE priv_lending CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -52,179 +68,49 @@ CREATE DATABASE priv_lending CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 Grant your `DB_USER` full rights on that database.
 
-### 4. Run migrations
-
-From the project root:
+Apply migrations from the project root:
 
 ```bash
 php bin/migrate.php
 ```
 
-This creates `schema_migrations` (if needed) and applies all `migrations/*.sql` files in lexicographic order (e.g. `0002_core_tables.sql`).
+This records applied files in `schema_migrations` and runs `migrations/*.sql` in filename order. Re-run after upgrades to pick up new migration files.
 
-The `loans` table includes `principal_amount`, `annual_interest_rate` (annual percent, up to three decimal places, e.g. `12.500`), optional `monthly_interest` and `interest_calc_method` (`fixed` or `declining_balance`) and optional `principal_payment_monthly` for paydown on declining-balance checks, and `payment_type` (`interest_only`, `prepaid`, `amortizing`). There is no amortization schedule yet; interest-only and amortizing loans use the same simple monthly estimate on full principal: `principal_amount * (annual_interest_rate / 100) / 12` (see `loan_simple_monthly_interest()` in `app/lib/lending_domain.php`). The **Checks** page (`GET /checks`) shows an **expected payment** column. **Fixed** method: stored `monthly_interest` when set, otherwise the same simple full-principal monthly interest as above. **Declining balance**: interest on beginning-of-month remaining principal (half-up to 2 decimals) plus constant `principal_payment_monthly` as the principal portion; the primary figure is the sum (both rounded to 2 decimals before display). Remaining principal uses `principal_amount - principal_payment_monthly × N`, where `N` is the number of completed paydowns before the selected month: the loan’s **origin calendar month has no paydown** (first modeled paydown is the next month), so `N = max(0, calendar_month_span − 1)` between origin month and selected month (`loan_months_elapsed_to_calendar_month()` in `app/lib/lending_domain.php`).
+### 5. Web server
 
-#### Upgrading an existing database (old `interest_type` / `monthly_interest`)
+**Document root must be `public/`** so `app/`, `bin/`, `migrations/`, and `.env` are not directly web-accessible.
 
-Only run this if your `loans` table still has `interest_type` (for example you applied an older `0002_core_tables.sql` before principal fields existed). If you already have `payment_type` and `principal_amount`, skip this block. If you have `interest_rate` but not `annual_interest_rate`, use `CHANGE COLUMN` (see MySQL docs) instead of adding a duplicate.
+- **Apache:** point `DocumentRoot` at `.../priv-lending/public` and allow `.htaccess` overrides (see `public/.htaccess`).
+- **nginx:** `root .../priv-lending/public;` and forward non-file requests to `index.php` (same intent as `.htaccess`).
 
-```sql
-ALTER TABLE loans ADD COLUMN principal_amount DECIMAL(12, 2) NULL AFTER name;
-ALTER TABLE loans ADD COLUMN annual_interest_rate DECIMAL(6, 3) NULL AFTER principal_amount;
-ALTER TABLE loans ADD COLUMN payment_type ENUM('interest_only', 'prepaid', 'amortizing') NULL AFTER annual_interest_rate;
-UPDATE loans SET payment_type = CASE interest_type WHEN 'prepaid' THEN 'prepaid' ELSE 'interest_only' END;
-UPDATE loans SET principal_amount = 0.00 WHERE principal_amount IS NULL;
-UPDATE loans SET annual_interest_rate = 0.000 WHERE annual_interest_rate IS NULL;
-UPDATE loans SET payment_type = 'interest_only' WHERE payment_type IS NULL;
-ALTER TABLE loans MODIFY principal_amount DECIMAL(12, 2) NOT NULL;
-ALTER TABLE loans MODIFY annual_interest_rate DECIMAL(6, 3) NOT NULL;
-ALTER TABLE loans MODIFY payment_type ENUM('interest_only', 'prepaid', 'amortizing') NOT NULL;
-ALTER TABLE loans DROP COLUMN monthly_interest;
-ALTER TABLE loans DROP COLUMN interest_type;
-```
+PHP’s **built-in server** (`php -S`) does not read `.htaccess`; use Apache, nginx, or another stack with proper rewrites for local testing.
 
-Afterward, edit migrated loans in the app to set real principal and annual rate where payment type is `interest_only` or `amortizing`.
+### 6. Use the app
 
-### Manual validation checklist (loans)
-
-1. **Fresh schema:** On a new database, run `php bin/migrate.php` and confirm `SHOW CREATE TABLE loans` lists `principal_amount`, `annual_interest_rate`, and `payment_type`, and does not list `interest_type` or `monthly_interest`.
-2. **Interest only:** Create a loan with payment type **Interest only**, principal `100000.00`, annual rate `12.00`, valid entity and dates. Save succeeds; list shows principal `100000.00`, rate `12.00`, payment type `interest_only`. Hover the principal cell: tooltip text should report estimated monthly interest `1000.00` (because \(100000 \times 0.12 / 12 = 1000\)).
-3. **Amortizing:** Create a loan with payment type **Amortizing** and the same principal/rate rules as interest-only. Save succeeds; list shows `amortizing`. Tooltip on principal uses the same formula (full principal; amortization not implemented yet).
-4. **Prepaid:** Create a loan with payment type **Prepaid**, prepaid amount `5000.00`, prepaid date set, leave principal/rate blank or zero. Save succeeds; list shows `prepaid` and principal/rate `0.00` / `0.00` (stored placeholders).
-5. **Validation rejects bad input:** Interest-only with zero principal or zero rate should redirect back to the form without creating a row. Prepaid with missing date or zero/negative prepaid amount should reject similarly.
-6. **Edit:** Open an existing loan, change payment type or principal/rate, save; list and DB reflect changes. `cash_events` unchanged (no FK or table changes there).
-
-### 5. Point the web server at `public/`
-
-**Document root** must be the `public/` directory so that `app/`, `bin/`, `migrations/`, and `.env` are **not** directly web-accessible.
-
-- **Apache:** set `DocumentRoot` to `.../priv-lending/public` and ensure `AllowOverride` allows `.htaccess` (only needs `FileInfo` for the small rewrite block in `public/.htaccess`).
-- **nginx:** use `root .../priv-lending/public;` and a `try_files` rule that forwards non-files to `index.php` (mirror the intent of `public/.htaccess`).
-
-### 6. Sign in and use the app
-
-1. Open the site in a browser (e.g. `https://localhost/priv-lending/` depending on your vhost).
-2. Go to **Login** and submit the form (single-user demo: user id `1`).
-3. Use **Borrowers → Entities → Loans** to create records in order (foreign keys require parents to exist first).
-4. Open **Checks** (`/checks`) from the dashboard for a read-only monthly expected-payment view (no writes).
-
-### Upgrading `loans` for `/checks` (existing databases)
-
-If `SHOW COLUMNS FROM loans` does not list `monthly_interest`, `interest_calc_method`, or `principal_payment_monthly`, run (adjust or skip lines if a column already exists):
-
-```sql
-ALTER TABLE loans ADD COLUMN monthly_interest DECIMAL(12, 2) NULL AFTER annual_interest_rate;
-ALTER TABLE loans ADD COLUMN interest_calc_method ENUM('fixed', 'declining_balance') NOT NULL DEFAULT 'fixed' AFTER monthly_interest;
-ALTER TABLE loans ADD COLUMN principal_payment_monthly DECIMAL(12, 2) NULL AFTER interest_calc_method;
-```
-
-### Manual validation checklist (GET /checks)
-
-1. **Month parameter:** Open `/checks` with no query string; the month control defaults to the current calendar month. Submit an invalid `?month=13-2026` or `?month=2026-13` via URL tampering; the page should fall back to the current month (server-side validation only).
-2. **Column header:** The main table lists **Expected payment** (not “Expected interest”).
-3. **Fixed:** With `interest_calc_method = 'fixed'`, the primary amount equals stored `monthly_interest` when set (two decimal places). Clear `monthly_interest`; the primary amount equals full principal × annual rate ÷ 12 (`loan_simple_monthly_interest()` in `app/lib/lending_domain.php`). Checkbox stays enabled.
-4. **Declining balance — payment:** With `interest_calc_method = 'declining_balance'`, non–paid-off rows: let `M` be the number of whole calendar months from the loan’s origin month to the selected month (same month ⇒ `M = 0`). Completed paydowns before the start of the selected month are `N = max(0, M − 1)` (origin month has no paydown; first paydown is modeled in the month after origin). Beginning-of-month remaining principal is `principal_amount − principal_payment_monthly × N` (clamped to ≥ 0). Expected interest is `remaining × (annual_interest_rate / 100) / 12`, half-up to 2 decimals. Expected principal portion equals `principal_payment_monthly` (2 decimals). **Expected payment** (primary) is interest + principal. Example: origin May 2025, selected May 2026, $150k, 13% annual, $4k/month paydown ⇒ `M = 12`, `N = 11`, remaining $106k, interest about $1,148.33, total about $5,148.33. Under the primary amount, two small lines show `interest: $…` and `principal: $…`.
-5. **Declining balance — paid off:** When remaining principal at the start of the selected month is ≤ 0, the primary cell shows "—", secondary line "Paid off", checkbox disabled. Notes column stays empty.
-6. **Prepaid:** Loans with `payment_type = 'prepaid'` appear only in the prepaid table at the bottom with the informational note; they are not included in the main expected-payment table.
-7. **No writes:** Confirm no POST from this page and no `INSERT`/`UPDATE` in the `GET /checks` handler; checkboxes have no `name` attribute so they are not submitted.
-8. **Rounding:** Interest portion uses **half-up** to two decimals (`checks_declining_monthly_interest`). Principal portion is shown at two decimals. Total expected payment is the sum at two decimal places (`checks_add_money_2`).
-9. **Interest-only declining (edge):** If a loan uses `declining_balance` with a non-zero `principal_payment_monthly`, the principal line should match that monthly amount even when payment type is interest-only (unusual but allowed).
-10. **POST /checks/submit:** If implemented elsewhere, it should continue to persist the **total** expected amount (payment), not a split; this change does not alter that contract.
+1. Open the site (e.g. `https://your-domain.example/`).
+2. **Login** — request a one-time code to an allowed email, then verify (see `.env.example`).
+3. Create data in a sensible order: **Borrowers** → **Entities** → **Loans** (parents must exist for foreign keys).
+4. Use **Checks** for scheduled monthly postings, **Bank** for LOC interest, **Report** for period rollups, **Payoff** for payoff statements and PDFs.
 
 ---
 
-## Development notes
+## Upgrading
 
-- **Sessions & CSRF:** Handled in `app/lib/session.php` and `app/lib/csrf.php`.
-- **Domain logic (loans, checks, money, reports):** `app/lib/lending_domain.php` — not in `public/index.php`, which only boots the app and routes requests.
-- **Database:** `app/lib/db.php` (PDO, prepared statements). No ORM.
-- **Security headers:** `app/lib/security_headers.php` (including CSP tuned for Tailwind’s CDN on some pages).
-- **Migrations:** Add new `*.sql` files under `migrations/`; filenames must sort in apply order. Re-run `php bin/migrate.php` to apply pending files.
+- Pull or unpack the new version, run `composer install --no-dev` if dependencies changed, then `php bin/migrate.php` again.
+- If you have an **old** database that predates certain columns, you may need one-off SQL (see comments in older migrations or your DBA notes). Fresh installs only need `php bin/migrate.php`.
 
-### PHP’s built-in server
-
-The built-in server (`php -S`) does **not** read `.htaccess`. Path-based routes like `/login` will not resolve unless you add a small router script or use Apache/nginx. For day-to-day local work, use Apache, nginx, or a tool that supports rewrite rules (e.g. Laravel Herd, MAMP, Docker with Apache/nginx).
-
-### Simple debugging
-
-1. **Document root** = the **`public/`** folder (the one that contains `index.php` and `.htaccess`).
-2. **`public/.htaccess`** should only send unknown URLs to `index.php` (no long rule chains).
-3. Put **`APP_DEBUG=true`** in `.env`, reload `/login`, read any **PHP message** on the page, then set **`APP_DEBUG=false`** again.
-4. In the IONOS panel, open the **error / access log** for the domain and find the line for the same second you hit the site.
-5. Optional: open **`/health.php`** once to confirm PHP version and `pdo_mysql`; delete that file when finished.
+Detailed manual test scenarios live in **[app/MANUAL_VALIDATION_CHECKLIST.md](app/MANUAL_VALIDATION_CHECKLIST.md)** (optional for day-to-day use).
 
 ---
 
-## Publishing to GitHub (new public repository)
+## Troubleshooting
 
-Do this once on your machine (replace `YOUR_USERNAME` with your GitHub username or org).
+1. Confirm **document root** is **`public/`** (the folder that contains `index.php`).
+2. Set **`APP_DEBUG=true`** briefly, reproduce the issue, read the error, then set it back to **`false`**.
+3. Check your host’s **PHP error / access logs** for the same timestamp.
+4. Optional: open **`public/health.php`** once to verify PHP and `pdo_mysql`; remove or protect it if you expose the site publicly.
 
-### A. Create an empty repo on GitHub
-
-1. Log in at [https://github.com](https://github.com).
-2. Click **+** → **New repository**.
-3. **Repository name:** `priv-lending` (or another name; then adjust the remote URL below).
-4. **Description:** e.g. “Personal private lending tracker (PHP).”
-5. Choose **Public**.
-6. Leave **Add a README** unchecked (this repo already has one).
-7. Click **Create repository**.
-
-GitHub will show you commands; you can use the following instead if you already have the code locally.
-
-### B. Push your local copy
-
-From the project root (after `git` is initialized and you have at least one commit):
-
-```bash
-git init
-git add .
-git commit -m "Initial commit: priv-lending"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/priv-lending.git
-git push -u origin main
-```
-
-If you use **SSH**:
-
-```bash
-git remote add origin git@github.com:YOUR_USERNAME/priv-lending.git
-git push -u origin main
-```
-
-### C. Confirm on GitHub
-
-Refresh the repository page; you should see `README.md`, `LICENSE`, and the rest of the tree. Check **Settings → General** if you want to add a description, website, or topics (e.g. `php`, `private-lending`, `mysql`).
-
----
-
-## Publishing a versioned release (GitHub)
-
-After you commit and push `CHANGELOG.md`, `composer.json`, and any other changes for the release:
-
-### On your machine
-
-1. Ensure `main` is pushed: `git push origin main`
-2. Create an **annotated** tag:  
-   `git tag -a v0.1.0 -m "v0.1.0"`  
-   (Use the same version as in `CHANGELOG.md` and `composer.json`.)
-3. Push the tag:  
-   `git push origin v0.1.0`
-
-### On github.com
-
-1. Open your repository → **Releases** (or **Tags**) → **Draft a new release**.
-2. **Choose a tag:** select `v0.1.0` (create from the tag you pushed if GitHub offers it).
-3. **Release title:** e.g. `v0.1.0`.
-4. **Describe this release:** paste or adapt the **0.1.0** section from [CHANGELOG.md](CHANGELOG.md). Add a short **Install** blurb for upgraders, e.g.  
-   - PHP 8.1+, MySQL 8.x  
-   - `composer install --no-dev`  
-   - `cp .env.example .env` and configure  
-   - `php bin/migrate.php`  
-   - Web root = **`public/`**
-5. Leave **Set as the latest release** checked (for the newest line).
-6. **Publish release.**
-
-GitHub will show the release on the repo home page and attach **Source code (zip/tar)** automatically. You do not need to upload a separate binary for this PHP app.
+**Architecture (short):** routing and boot in `public/index.php`; PDO in `app/lib/db.php`; loan/check/payoff money logic largely in `app/lib/lending_domain.php` and `app/lib/payoff_helpers.php`; sessions and CSRF in `app/lib/session.php` and `app/lib/csrf.php`; security headers in `app/lib/security_headers.php`.
 
 ---
 

@@ -33,10 +33,10 @@ $linkClass = static function (bool $on): string {
 <a class="<?php echo e($linkClass($active($path, '/bank'))); ?>" href="/bank">Bank</a>
 <a class="<?php echo e($linkClass($active($path, '/cash-events'))); ?>" href="/cash-events">Cash Events</a>
 <a class="<?php echo e($linkClass($active($path, '/loans'))); ?>" href="/loans">Loans</a>
-<a class="<?php echo e($linkClass($active($path, '/payoff'))); ?>" href="/payoff">Payoff</a>
 <a class="<?php echo e($linkClass($active($path, '/entities'))); ?>" href="/entities">Entities</a>
 <a class="<?php echo e($linkClass($active($path, '/borrowers'))); ?>" href="/borrowers">Borrowers</a>
 <a class="<?php echo e($linkClass($active($path, '/report'))); ?>" href="/report">Report</a>
+<a class="<?php echo e($linkClass($active($path, '/payoff'))); ?>" href="/payoff">Payoff</a>
 </nav>
 <form class="shrink-0" method="post" action="/logout"><?php echo csrf_field(); ?>
 <button class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" type="submit">Sign out</button>

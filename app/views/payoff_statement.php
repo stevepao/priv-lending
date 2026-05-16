@@ -87,6 +87,10 @@ $pdfQs = http_build_query([
     'payoff_good_thru' => $payoffGoodThruYmd,
 ]);
 ?>
-<p class="flex flex-wrap items-center justify-center gap-4 pt-4 text-center sm:justify-start sm:text-left print:hidden"><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900" href="/payoff">← Back to payoff form</a><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900" href="/payoff/pdf?<?php echo e($pdfQs); ?>">Download PDF</a></p>
+<div class="flex justify-center pt-6 print:hidden">
+<a class="inline-flex rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800" href="/payoff/pdf?<?php echo e($pdfQs); ?>">Download PDF</a>
+</div>
+
+<p class="pt-6 text-center print:hidden"><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900" href="/payoff">← Back to payoff form</a></p>
 </div>
 <?php require __DIR__ . '/partials/layout_foot.php'; ?>
