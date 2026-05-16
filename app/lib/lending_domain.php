@@ -313,6 +313,131 @@ function report_metrics_from_category_sums(string $interestInRaw, string $locSum
 }
 
 /**
+ * Positive draw weight from SUM(principal_out.amount): only negative totals (draws) count.
+ */
+function report_principal_out_draw_magnitude(string $rawSum): string
+{
+    $n = checks_normalize_money_2($rawSum);
+    if (extension_loaded('bcmath')) {
+        if (bccomp($n, '0', 2) < 0) {
+            return bcmul($n, '-1', 2);
+        }
+
+        return '0.00';
+    }
+
+    $f = (float) $n;
+
+    return $f < 0 ? number_format(-$f, 2, '.', '') : '0.00';
+}
+
+/**
+ * Period LOC interest as a positive “out” pool (same sign convention as report_metrics_from_category_sums).
+ */
+function report_loc_interest_pool_positive(string $locInterestCategorySumRaw): string
+{
+    $locSumNorm = checks_normalize_money_2($locInterestCategorySumRaw);
+    if (extension_loaded('bcmath')) {
+        return bcmul($locSumNorm, '-1', 2);
+    }
+
+    return number_format(-(float) $locSumNorm, 2, '.', '');
+}
+
+/**
+ * Metrics row when LOC out is an allocated positive dollar amount (not raw loc_interest category sum).
+ *
+ * @return array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}
+ */
+function report_metrics_from_interest_principal_alloc_loc(string $interestInRaw, string $locInterestOutPositive, string $principalNetSumRaw): array
+{
+    $interestIn = checks_normalize_money_2($interestInRaw);
+    $locInterestOut = checks_normalize_money_2($locInterestOutPositive);
+    $principalPaid = checks_normalize_money_2($principalNetSumRaw);
+    if (extension_loaded('bcmath')) {
+        $netIncome = bcsub($interestIn, $locInterestOut, 2);
+    } else {
+        $netIncome = number_format((float) $interestIn - (float) $locInterestOut, 2, '.', '');
+    }
+
+    return [
+        'interestIn' => $interestIn,
+        'locInterestOut' => $locInterestOut,
+        'netIncome' => $netIncome,
+        'principalPaid' => $principalPaid,
+    ];
+}
+
+/**
+ * Rough LOC allocation: for each bank with pool P, split P across segments in proportion to principal_out draw weights.
+ *
+ * @param array<string, string> $poolsByBank        deposit_to key (empty string when null) => positive pool
+ * @param array<string, array<string, string>> $weightsBySegment segment key => bank key => positive weight
+ *
+ * @return array<string, string> segment key => allocated positive LOC
+ */
+function report_allocate_loc_interest_by_principal_weights(array $poolsByBank, array $weightsBySegment): array
+{
+    $alloc = [];
+    foreach (array_keys($weightsBySegment) as $seg) {
+        $alloc[$seg] = '0.00';
+    }
+
+    foreach ($poolsByBank as $bankKey => $poolRaw) {
+        $pool = checks_normalize_money_2($poolRaw);
+        if (extension_loaded('bcmath')) {
+            if (bccomp($pool, '0', 2) <= 0) {
+                continue;
+            }
+        } elseif ((float) $pool <= 0) {
+            continue;
+        }
+
+        $wTotal = '0.00';
+        foreach ($weightsBySegment as $banks) {
+            $w = checks_normalize_money_2($banks[$bankKey] ?? '0.00');
+            $wTotal = checks_add_money_2($wTotal, $w);
+        }
+
+        if (extension_loaded('bcmath')) {
+            if (bccomp($wTotal, '0', 2) <= 0) {
+                continue;
+            }
+        } elseif ((float) $wTotal <= 0) {
+            continue;
+        }
+
+        foreach ($weightsBySegment as $seg => $banks) {
+            $w = checks_normalize_money_2($banks[$bankKey] ?? '0.00');
+            if (extension_loaded('bcmath')) {
+                if (bccomp($w, '0', 2) <= 0) {
+                    continue;
+                }
+                $piece = bcdiv(bcmul($pool, $w, 4), $wTotal, 2);
+            } else {
+                $piece = number_format((float) $pool * (float) $w / (float) $wTotal, 2, '.', '');
+            }
+            $alloc[$seg] = checks_add_money_2($alloc[$seg], $piece);
+        }
+    }
+
+    return $alloc;
+}
+
+/**
+ * @param array<string, string> $poolsByBank
+ */
+function report_sum_money_map(array $poolsByBank): string
+{
+    $t = '0.00';
+    foreach ($poolsByBank as $v) {
+        $t = checks_add_money_2($t, checks_normalize_money_2($v));
+    }
+
+    return checks_normalize_money_2($t);
+}
+
+/**
  * @param array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string} $a
  * @param array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string} $b
  *

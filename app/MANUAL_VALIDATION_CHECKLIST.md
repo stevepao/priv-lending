@@ -48,7 +48,7 @@ Run logged in, with migrations applied if you use posting / Posted status.
 
 ## Report (`public/index.php`)
 
-23. **GET /report** — **Report type** dropdown (default By month): By bank | By month, by bank | By loan | By entity; date range presets (default last 3 months) + custom; **Show report** GET. By month lists every calendar month in range with zeros empty; others list groups with activity. Metrics: Interest in, LOC out, Net income, Principal paid — **Bank** dimensions use cash event **Deposit to**; **loan** aggregates by loan (**Not on a loan** for no `loan_id`); **entity** via loan→entity (**Not on an entity loan** when no loan/entity); **Total** row. Amber when custom start &gt; end. Dashboard links to **Report**.
+23. **GET /report** — **Report type** dropdown (default By month): By bank | By month, by bank | By loan | By entity; date range presets (default last 3 months) + custom; **Show report** GET. By month lists every calendar month in range with zeros empty; others list groups with activity. Metrics: Interest in, LOC out, Net income, Principal paid — **Bank** dimensions use cash event **Deposit to**; **loan** aggregates by loan (**Not on a loan** for no `loan_id`); **entity** via loan→entity (**Not on an entity loan** when no loan/entity); **Total** row. **By loan** and **By entity**: LOC out and net income are computed allocations (italic)—each bank’s period LOC expense is split by that bank’s `principal_out` draw amounts vs total draws to that bank; a note appears if some LOC cannot be allocated (no draws in range to weight). Amber when custom start &gt; end. Dashboard links to **Report**.
 
 ## Other routes
 

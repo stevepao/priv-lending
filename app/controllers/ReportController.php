@@ -7,8 +7,12 @@ final class ReportController
     /** @var list<string> */
     private const REPORT_TYPES = ['month', 'bank', 'month_bank', 'loan', 'entity'];
 
+    /** Note when some period LOC could not be split by principal_out weights (shown for By loan / By entity). */
+    private string $locAllocUnallocatedNote = '';
+
     public function index(): void
     {
+        $this->locAllocUnallocatedNote = '';
         $title = 'Report';
         $filter = date_range_filter_from_get($_GET);
         $reportType = $this->reportTypeFromGet($_GET);
@@ -38,6 +42,7 @@ final class ReportController
             'dateOrderError' => $filter['dateOrderError'],
             'detailRows' => $detailRows,
             'totals' => $totals,
+            'locAllocUnallocatedNote' => $this->locAllocUnallocatedNote,
         ]);
     }
 
@@ -71,6 +76,154 @@ final class ReportController
             'netIncomeDisp' => checks_format_money_display_2($metrics['netIncome']),
             'principalPaidDisp' => checks_format_money_display_2($metrics['principalPaid']),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     *
+     * @return array{metrics: array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}, interestInDisp: string, locInterestOutDisp: string, netIncomeDisp: string, principalPaidDisp: string, allocLocComputed: true}
+     */
+    private function displayRowAllocatedLoc(array $row, string $locAllocPositive): array
+    {
+        $metrics = report_metrics_from_interest_principal_alloc_loc(
+            (string) ($row['interest_in_sum'] ?? '0'),
+            $locAllocPositive,
+            (string) ($row['principal_net_sum'] ?? '0')
+        );
+
+        return [
+            'metrics' => $metrics,
+            'interestInDisp' => checks_format_money_display_2($metrics['interestIn']),
+            'locInterestOutDisp' => checks_format_money_display_2($metrics['locInterestOut']),
+            'netIncomeDisp' => checks_format_money_display_2($metrics['netIncome']),
+            'principalPaidDisp' => checks_format_money_display_2($metrics['principalPaid']),
+            'allocLocComputed' => true,
+        ];
+    }
+
+    private function depositToKey(mixed $depositTo): string
+    {
+        if ($depositTo === null || (string) $depositTo === '') {
+            return '';
+        }
+
+        return (string) $depositTo;
+    }
+
+    private function loanSegmentKey(mixed $loanId): string
+    {
+        if ($loanId === null || $loanId === '') {
+            return 'loan:null';
+        }
+
+        return 'loan:' . (string) (int) $loanId;
+    }
+
+    private function entitySegmentKey(mixed $entityId): string
+    {
+        if ($entityId === null || $entityId === '') {
+            return 'entity:null';
+        }
+
+        return 'entity:' . (string) (int) $entityId;
+    }
+
+    /**
+     * @return array<string, string> deposit_to key => positive LOC pool for the period
+     */
+    private function locInterestPoolsByDeposit(string $start, string $end): array
+    {
+        $rows = dbAll(
+            'SELECT ce.deposit_to, COALESCE(SUM(ce.amount), 0) AS loc_sum '
+            . 'FROM cash_events ce '
+            . 'WHERE ce.event_date >= ? AND ce.event_date <= ? AND ce.category = ? '
+            . 'GROUP BY ce.deposit_to',
+            [$start, $end, 'loc_interest']
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $k = $this->depositToKey($r['deposit_to'] ?? null);
+            $out[$k] = report_loc_interest_pool_positive((string) ($r['loc_sum'] ?? '0'));
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, array<string, string>>
+     */
+    private function principalOutWeightsByLoan(string $start, string $end): array
+    {
+        $rows = dbAll(
+            'SELECT ce.loan_id, ce.deposit_to, COALESCE(SUM(ce.amount), 0) AS pr_out_sum '
+            . 'FROM cash_events ce '
+            . 'WHERE ce.event_date >= ? AND ce.event_date <= ? AND ce.category = ? '
+            . 'GROUP BY ce.loan_id, ce.deposit_to',
+            [$start, $end, 'principal_out']
+        );
+        $weights = [];
+        foreach ($rows as $r) {
+            $seg = $this->loanSegmentKey($r['loan_id'] ?? null);
+            $bk = $this->depositToKey($r['deposit_to'] ?? null);
+            $w = report_principal_out_draw_magnitude((string) ($r['pr_out_sum'] ?? '0'));
+            if (!isset($weights[$seg])) {
+                $weights[$seg] = [];
+            }
+            $prev = $weights[$seg][$bk] ?? '0.00';
+            $weights[$seg][$bk] = checks_add_money_2($prev, $w);
+        }
+
+        return $weights;
+    }
+
+    /**
+     * @return array<string, array<string, string>>
+     */
+    private function principalOutWeightsByEntity(string $start, string $end): array
+    {
+        $rows = dbAll(
+            'SELECT l.entity_id, ce.deposit_to, COALESCE(SUM(ce.amount), 0) AS pr_out_sum '
+            . 'FROM cash_events ce '
+            . 'LEFT JOIN loans l ON l.id = ce.loan_id '
+            . 'WHERE ce.event_date >= ? AND ce.event_date <= ? AND ce.category = ? '
+            . 'GROUP BY l.entity_id, ce.deposit_to',
+            [$start, $end, 'principal_out']
+        );
+        $weights = [];
+        foreach ($rows as $r) {
+            $seg = $this->entitySegmentKey($r['entity_id'] ?? null);
+            $bk = $this->depositToKey($r['deposit_to'] ?? null);
+            $w = report_principal_out_draw_magnitude((string) ($r['pr_out_sum'] ?? '0'));
+            if (!isset($weights[$seg])) {
+                $weights[$seg] = [];
+            }
+            $prev = $weights[$seg][$bk] ?? '0.00';
+            $weights[$seg][$bk] = checks_add_money_2($prev, $w);
+        }
+
+        return $weights;
+    }
+
+    private function setLocAllocUnallocatedNoteIfNeeded(array $poolsByDeposit, array $allocBySegment): void
+    {
+        $totalPools = report_sum_money_map($poolsByDeposit);
+        $sumAlloc = '0.00';
+        foreach ($allocBySegment as $v) {
+            $sumAlloc = checks_add_money_2($sumAlloc, $v);
+        }
+        if (extension_loaded('bcmath')) {
+            $unalloc = bcsub($totalPools, $sumAlloc, 2);
+            if (bccomp($unalloc, '0.01', 2) < 0) {
+                return;
+            }
+        } else {
+            $unalloc = number_format((float) $totalPools - (float) $sumAlloc, 2, '.', '');
+            if ((float) $unalloc < 0.01) {
+                return;
+            }
+        }
+        $this->locAllocUnallocatedNote = 'Roughly ' . checks_format_money_display_2($unalloc)
+            . ' of line-of-credit interest in this range is not attributed above (no principal draws on that bank in the period to weight the split).';
     }
 
     /**
@@ -194,22 +347,26 @@ final class ReportController
     }
 
     /**
-     * @return list<array{loanLabel: string, metrics: array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}, interestInDisp: string, locInterestOutDisp: string, netIncomeDisp: string, principalPaidDisp: string}>
+     * @return list<array{loanLabel: string, metrics: array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}, interestInDisp: string, locInterestOutDisp: string, netIncomeDisp: string, principalPaidDisp: string, allocLocComputed?: true}>
      */
     private function buildByLoanRows(string $start, string $end): array
     {
         $aggRows = dbAll(
             'SELECT ce.loan_id, l.name AS loan_name, '
             . 'COALESCE(SUM(CASE WHEN ce.category = ? THEN ce.amount ELSE 0 END), 0) AS interest_in_sum, '
-            . 'COALESCE(SUM(CASE WHEN ce.category = ? THEN ce.amount ELSE 0 END), 0) AS loc_interest_sum, '
             . 'COALESCE(SUM(CASE WHEN ce.category IN (?, ?) THEN ce.amount ELSE 0 END), 0) AS principal_net_sum '
             . 'FROM cash_events ce '
             . 'LEFT JOIN loans l ON l.id = ce.loan_id '
             . 'WHERE ce.event_date >= ? AND ce.event_date <= ? '
             . 'GROUP BY ce.loan_id, l.name '
             . 'ORDER BY (ce.loan_id IS NULL), loan_name ASC, ce.loan_id ASC',
-            ['interest', 'loc_interest', 'principal_in', 'principal_out', $start, $end]
+            ['interest', 'principal_in', 'principal_out', $start, $end]
         );
+
+        $pools = $this->locInterestPoolsByDeposit($start, $end);
+        $weights = $this->principalOutWeightsByLoan($start, $end);
+        $allocBySeg = report_allocate_loc_interest_by_principal_weights($pools, $weights);
+        $this->setLocAllocUnallocatedNoteIfNeeded($pools, $allocBySeg);
 
         $out = [];
         foreach ($aggRows as $row) {
@@ -222,7 +379,9 @@ final class ReportController
             } else {
                 $loanLabel = 'Loan #' . (string) (int) $lid;
             }
-            $disp = $this->displayRowFromAgg($row);
+            $seg = $this->loanSegmentKey($lid);
+            $locAlloc = $allocBySeg[$seg] ?? '0.00';
+            $disp = $this->displayRowAllocatedLoc($row, $locAlloc);
             $out[] = array_merge(['loanLabel' => $loanLabel], $disp);
         }
 
@@ -230,14 +389,13 @@ final class ReportController
     }
 
     /**
-     * @return list<array{entityLabel: string, metrics: array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}, interestInDisp: string, locInterestOutDisp: string, netIncomeDisp: string, principalPaidDisp: string}>
+     * @return list<array{entityLabel: string, metrics: array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}, interestInDisp: string, locInterestOutDisp: string, netIncomeDisp: string, principalPaidDisp: string, allocLocComputed?: true}>
      */
     private function buildByEntityRows(string $start, string $end): array
     {
         $aggRows = dbAll(
             'SELECT l.entity_id, e.name AS entity_name, '
             . 'COALESCE(SUM(CASE WHEN ce.category = ? THEN ce.amount ELSE 0 END), 0) AS interest_in_sum, '
-            . 'COALESCE(SUM(CASE WHEN ce.category = ? THEN ce.amount ELSE 0 END), 0) AS loc_interest_sum, '
             . 'COALESCE(SUM(CASE WHEN ce.category IN (?, ?) THEN ce.amount ELSE 0 END), 0) AS principal_net_sum '
             . 'FROM cash_events ce '
             . 'LEFT JOIN loans l ON l.id = ce.loan_id '
@@ -245,8 +403,13 @@ final class ReportController
             . 'WHERE ce.event_date >= ? AND ce.event_date <= ? '
             . 'GROUP BY l.entity_id, e.name '
             . 'ORDER BY (l.entity_id IS NULL), entity_name ASC, l.entity_id ASC',
-            ['interest', 'loc_interest', 'principal_in', 'principal_out', $start, $end]
+            ['interest', 'principal_in', 'principal_out', $start, $end]
         );
+
+        $pools = $this->locInterestPoolsByDeposit($start, $end);
+        $weights = $this->principalOutWeightsByEntity($start, $end);
+        $allocBySeg = report_allocate_loc_interest_by_principal_weights($pools, $weights);
+        $this->setLocAllocUnallocatedNoteIfNeeded($pools, $allocBySeg);
 
         $out = [];
         foreach ($aggRows as $row) {
@@ -259,7 +422,9 @@ final class ReportController
             } else {
                 $entityLabel = 'Entity #' . (string) (int) $eid;
             }
-            $disp = $this->displayRowFromAgg($row);
+            $seg = $this->entitySegmentKey($eid);
+            $locAlloc = $allocBySeg[$seg] ?? '0.00';
+            $disp = $this->displayRowAllocatedLoc($row, $locAlloc);
             $out[] = array_merge(['entityLabel' => $entityLabel], $disp);
         }
 

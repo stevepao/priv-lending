@@ -2,6 +2,7 @@
 <?php
 $colspanMetric = $reportType === 'month_bank' ? 6 : 5;
 $leadCols = $reportType === 'month_bank' ? 2 : 1;
+$reportAllocLocItalics = ($reportType === 'loan' || $reportType === 'entity');
 ?>
 <div class="mx-auto max-w-4xl space-y-6">
 <h1 class="text-2xl font-semibold"><?php echo e($title); ?></h1>
@@ -44,10 +45,12 @@ Totals by bank from <strong><?php echo e($start); ?></strong> through <strong><?
 Each row is one calendar month and bank. Only month–bank combinations with activity in range are listed. Same bank field as <strong>Deposit to</strong> on cash events.
 <?php elseif ($reportType === 'loan'): ?>
 Totals by loan for <strong><?php echo e($start); ?></strong> through <strong><?php echo e($end); ?></strong>. Rows with no loan aggregate bank or other events not tied to a loan.
+<strong>LOC interest out</strong> is a rough allocation: for each bank, period LOC expense is split across loans in proportion to principal draws (<code>principal_out</code>) for that loan vs total draws to that bank in the date range.
 <?php else: ?>
 Totals by borrowing entity for <strong><?php echo e($start); ?></strong> through <strong><?php echo e($end); ?></strong>, using each loan’s entity. Events not on a loan are grouped separately.
+<strong>LOC interest out</strong> uses the same allocation rule by entity: each bank’s LOC expense is split using principal draws to that bank, comparing the entity’s draws to all draws for the period.
 <?php endif; ?>
-Net income is interest in minus LOC interest out. Principal paid is the sum of principal in and principal out (for reference).</p>
+Net income is interest in minus LOC interest out (minus allocated LOC for by-loan and by-entity views). Principal paid is the sum of principal in and principal out (for reference).</p>
 <div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
 <table class="min-w-full text-left text-sm"><thead class="bg-slate-100 text-slate-600"><tr>
 <?php if ($reportType === 'month'): ?>
@@ -86,20 +89,23 @@ Net income is interest in minus LOC interest out. Principal paid is the sum of p
 <td class="px-3 py-2 font-medium text-slate-900"><?php echo e($dr['entityLabel']); ?></td>
 <?php endif; ?>
 <td class="px-3 py-2 text-right font-mono tabular-nums"><?php echo e($dr['interestInDisp']); ?></td>
-<td class="px-3 py-2 text-right font-mono tabular-nums"><?php echo e($dr['locInterestOutDisp']); ?></td>
-<td class="px-3 py-2 text-right font-mono tabular-nums font-medium"><?php echo e($dr['netIncomeDisp']); ?></td>
+<td class="px-3 py-2 text-right font-mono tabular-nums<?php echo !empty($dr['allocLocComputed']) ? ' italic text-slate-800' : ''; ?>"><?php echo e($dr['locInterestOutDisp']); ?></td>
+<td class="px-3 py-2 text-right font-mono tabular-nums font-medium<?php echo !empty($dr['allocLocComputed']) ? ' italic text-slate-800' : ''; ?>"><?php echo e($dr['netIncomeDisp']); ?></td>
 <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-600"><?php echo e($dr['principalPaidDisp']); ?></td>
 </tr>
 <?php endforeach; ?>
 <tr class="border-t-2 border-slate-300 bg-slate-50 font-semibold">
 <td class="px-3 py-2 text-slate-900" colspan="<?php echo (int) $leadCols; ?>">Total</td>
 <td class="px-3 py-2 text-right font-mono tabular-nums"><?php echo e(checks_format_money_display_2($totals['interestIn'])); ?></td>
-<td class="px-3 py-2 text-right font-mono tabular-nums"><?php echo e(checks_format_money_display_2($totals['locInterestOut'])); ?></td>
-<td class="px-3 py-2 text-right font-mono tabular-nums"><?php echo e(checks_format_money_display_2($totals['netIncome'])); ?></td>
+<td class="px-3 py-2 text-right font-mono tabular-nums<?php echo $reportAllocLocItalics ? ' italic text-slate-800' : ''; ?>"><?php echo e(checks_format_money_display_2($totals['locInterestOut'])); ?></td>
+<td class="px-3 py-2 text-right font-mono tabular-nums<?php echo $reportAllocLocItalics ? ' italic text-slate-800' : ''; ?>"><?php echo e(checks_format_money_display_2($totals['netIncome'])); ?></td>
 <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-700"><?php echo e(checks_format_money_display_2($totals['principalPaid'])); ?></td>
 </tr>
 <?php endif; ?>
 </tbody></table></div>
+<?php if ($reportAllocLocItalics && ($locAllocUnallocatedNote ?? '') !== ''): ?>
+<p class="text-sm text-slate-600"><?php echo e($locAllocUnallocatedNote); ?></p>
+<?php endif; ?>
 <script>
 (function () {
   var sel = document.getElementById('range');
