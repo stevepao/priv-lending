@@ -15,6 +15,9 @@
 /** @var string $perdiemInterestDisp */
 /** @var string $totalDueDisp */
 /** @var string $dailyRateDisp */
+/** @var int $loanId */
+/** @var string $dateQuotedYmd */
+/** @var string $payoffGoodThruYmd */
 ?>
 <div class="mx-auto max-w-3xl space-y-8 px-4 py-6 text-slate-900 print:max-w-none print:px-0">
 <div class="flex flex-col justify-between gap-10 sm:flex-row sm:gap-16">
@@ -77,6 +80,13 @@ if (LENDER_CITY !== '' || LENDER_STATE !== '' || LENDER_ZIP !== '') {
 <div class="flex justify-between gap-6 py-2"><span>Daily interest rate</span><span class="text-right tabular-nums"><?php echo e($dailyRateDisp); ?></span></div>
 </div>
 
-<p class="pt-4 text-center sm:text-left"><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900 print:hidden" href="/payoff">← Back to payoff form</a></p>
+<?php
+$pdfQs = http_build_query([
+    'loan_id' => $loanId,
+    'date_quoted' => $dateQuotedYmd,
+    'payoff_good_thru' => $payoffGoodThruYmd,
+]);
+?>
+<p class="flex flex-wrap items-center justify-center gap-4 pt-4 text-center sm:justify-start sm:text-left print:hidden"><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900" href="/payoff">← Back to payoff form</a><a class="text-sm font-medium text-slate-700 underline hover:text-slate-900" href="/payoff/pdf?<?php echo e($pdfQs); ?>">Download PDF</a></p>
 </div>
 <?php require __DIR__ . '/partials/layout_foot.php'; ?>

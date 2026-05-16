@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/payoff_helpers.php';
 
+use Dompdf\Dompdf;
+use Dompdf\Options;
+
 final class PayoffController
 {
     public function form(): void
@@ -43,23 +46,78 @@ final class PayoffController
         $dateQuotedRaw = trim((string) ($_POST['date_quoted'] ?? ''));
         $payoffGoodThruRaw = trim((string) ($_POST['payoff_good_thru'] ?? ''));
 
-        $parseYmd = static function (string $s): ?string {
-            $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
+        $dateQuoted = self::payoffParseYmd($dateQuotedRaw);
+        $payoffGoodThru = self::payoffParseYmd($payoffGoodThruRaw);
 
-            return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
-        };
-
-        $dateQuoted = $parseYmd($dateQuotedRaw);
-        $payoffGoodThru = $parseYmd($payoffGoodThruRaw);
-
-        if ($loanId < 1 || $dateQuoted === null || $payoffGoodThru === null) {
+        $viewData = self::buildPayoffStatementViewData($loanId, $dateQuoted, $payoffGoodThru);
+        if ($viewData === null) {
             header('Location: /payoff?invalid=1');
             exit;
         }
 
-        if ($payoffGoodThru < $dateQuoted) {
+        header('Content-Type: text/html; charset=utf-8');
+        render('payoff_statement', $viewData);
+    }
+
+    public function pdf(): void
+    {
+        if (!class_exists(Dompdf::class)) {
+            http_response_code(500);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "PDF generation is not available (install Composer dependencies).\n";
+            exit;
+        }
+
+        $loanId = (int) ($_GET['loan_id'] ?? 0);
+        $dateQuoted = self::payoffParseYmd(trim((string) ($_GET['date_quoted'] ?? '')));
+        $payoffGoodThru = self::payoffParseYmd(trim((string) ($_GET['payoff_good_thru'] ?? '')));
+
+        $viewData = self::buildPayoffStatementViewData($loanId, $dateQuoted, $payoffGoodThru);
+        if ($viewData === null) {
             header('Location: /payoff?invalid=1');
             exit;
+        }
+
+        ob_start();
+        render('payoff_statement_pdf', $viewData);
+        $html = ob_get_clean();
+
+        $options = new Options();
+        $options->setDefaultFont('DejaVu Sans');
+        $options->setIsRemoteEnabled(false);
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper('letter', 'portrait');
+        $dompdf->render();
+
+        $loanSafe = self::payoffSanitizeFilenameSegment((string) ($viewData['loanNameForFile'] ?? 'Loan'));
+        $datePart = (string) ($viewData['dateQuotedYmd'] ?? '');
+        $filename = 'Loan Payoff Statement - ' . $loanSafe . ' - ' . $datePart . '.pdf';
+
+        $dompdf->stream($filename, ['Attachment' => true]);
+    }
+
+    private static function payoffParseYmd(string $s): ?string
+    {
+        if ($s === '') {
+            return null;
+        }
+        $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
+
+        return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function buildPayoffStatementViewData(int $loanId, ?string $dateQuoted, ?string $payoffGoodThru): ?array
+    {
+        if ($loanId < 1 || $dateQuoted === null || $payoffGoodThru === null) {
+            return null;
+        }
+        if ($payoffGoodThru < $dateQuoted) {
+            return null;
         }
 
         $idx = loan_loans_column_name_index();
@@ -85,19 +143,16 @@ final class PayoffController
         $stmt->execute([$loanId]);
         $loanRow = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($loanRow === false) {
-            header('Location: /payoff?invalid=1');
-            exit;
+            return null;
         }
 
         $originRaw = $loanRow['origin_date'] ?? null;
         if ($originRaw === null || (string) $originRaw === '') {
-            header('Location: /payoff?invalid=1');
-            exit;
+            return null;
         }
         $origin = DateTimeImmutable::createFromFormat('Y-m-d', (string) $originRaw);
         if (!$origin instanceof DateTimeImmutable || $origin->format('Y-m-d') !== (string) $originRaw) {
-            header('Location: /payoff?invalid=1');
-            exit;
+            return null;
         }
 
         $principalBalance = compute_principal_balance($loanRow, $dateQuoted);
@@ -152,9 +207,12 @@ final class PayoffController
         $perdiemStartMd = self::payoffFormatDateMdY($perdiemStart->format('Y-m-d'));
         $perdiemEndMd = self::payoffFormatDateMdY($perdiemEnd->format('Y-m-d'));
 
-        header('Content-Type: text/html; charset=utf-8');
-        render('payoff_statement', [
+        return [
             'title' => 'Loan payoff statement',
+            'loanId' => $loanId,
+            'dateQuotedYmd' => $dateQuoted,
+            'payoffGoodThruYmd' => $payoffGoodThru,
+            'loanNameForFile' => $loanName !== '' ? $loanName : 'Loan',
             'entityName' => $entityName,
             'borrowerName' => $borrowerName,
             'borrowerAddress' => $borrowerAddress,
@@ -169,7 +227,15 @@ final class PayoffController
             'perdiemInterestDisp' => self::payoffFormatMoneyUsd($perdiemInterestAmount),
             'totalDueDisp' => self::payoffFormatMoneyUsd($totalDue),
             'dailyRateDisp' => self::payoffFormatMoneyUsd(checks_normalize_money_2($dailyRate)),
-        ]);
+        ];
+    }
+
+    private static function payoffSanitizeFilenameSegment(string $name): string
+    {
+        $s = preg_replace('/[^A-Za-z0-9 _.-]+/u', '', $name);
+        $s = trim((string) $s);
+
+        return $s !== '' ? $s : 'Loan';
     }
 
     /**

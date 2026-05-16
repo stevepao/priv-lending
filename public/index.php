@@ -149,6 +149,9 @@ $routes = [
     'POST /payoff' => static function (): void {
         (new PayoffController())->statement();
     },
+    'GET /payoff/pdf' => static function (): void {
+        (new PayoffController())->pdf();
+    },
     'GET /loans/new' => static function (): void {
         (new LoansController())->create();
     },
