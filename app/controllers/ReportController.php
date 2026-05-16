@@ -7,7 +7,7 @@ final class ReportController
     /** @var list<string> */
     private const REPORT_TYPES = ['month', 'bank', 'month_bank', 'loan', 'entity'];
 
-    /** Note when some period LOC could not be split by loan-balance weights (shown for By loan / By entity). */
+    /** Note when some period LOC could not be split by month-end-in-range loan-balance weights (shown for By loan / By entity). */
     private string $locAllocUnallocatedNote = '';
 
     public function index(): void
@@ -129,48 +129,27 @@ final class ReportController
     }
 
     /**
-     * @return array<string, string> deposit_to key => positive LOC pool for the period
+     * @return list<array<string, mixed>>
      */
-    private function locInterestPoolsByDeposit(string $start, string $end): array
+    private function loanLedgerRowsForLocAllocationAsOf(string $balanceAsOfYmd): array
     {
-        $rows = dbAll(
-            'SELECT ce.deposit_to, COALESCE(SUM(ce.amount), 0) AS loc_sum '
-            . 'FROM cash_events ce '
-            . 'WHERE ce.event_date >= ? AND ce.event_date <= ? AND ce.category = ? '
-            . 'GROUP BY ce.deposit_to',
-            [$start, $end, 'loc_interest']
-        );
-        $out = [];
-        foreach ($rows as $r) {
-            $k = $this->depositToKey($r['deposit_to'] ?? null);
-            $out[$k] = report_loc_interest_pool_positive((string) ($r['loc_sum'] ?? '0'));
-        }
-
-        return $out;
-    }
-
-    /**
-     * @return list<array{loan_id: int|string|null, entity_id: int|string|null, funding_source: string|null, balance_raw: string|float}>
-     */
-    private function loanLedgerRowsForLocAllocation(): array
-    {
-        $balSub = loan_sql_cash_principal_balance_subquery();
-
         return dbAll(
-            'SELECT l.id AS loan_id, l.entity_id, l.funding_source, ' . $balSub . ' AS balance_raw FROM loans l',
-            []
+            'SELECT l.id AS loan_id, l.entity_id, l.funding_source, '
+            . '(SELECT COALESCE(SUM(ce.amount), 0) FROM cash_events ce '
+            . 'WHERE ce.loan_id = l.id AND ce.category IN (\'principal_in\', \'principal_out\') '
+            . 'AND ce.event_date <= ?) AS balance_raw '
+            . 'FROM loans l',
+            [$balanceAsOfYmd]
         );
     }
 
     /**
-     * Weights from each loan’s cash principal ledger balance (same as Loans list) and Funding source (matches Deposit to).
-     *
      * @return array<string, array<string, string>>
      */
-    private function locAllocationWeightsByLoanSegment(): array
+    private function locAllocationWeightsByLoanSegmentAsOf(string $balanceAsOfYmd): array
     {
         $weights = [];
-        foreach ($this->loanLedgerRowsForLocAllocation() as $r) {
+        foreach ($this->loanLedgerRowsForLocAllocationAsOf($balanceAsOfYmd) as $r) {
             $seg = $this->loanSegmentKey($r['loan_id'] ?? null);
             $bk = $this->depositToKey($r['funding_source'] ?? null);
             $w = report_principal_ledger_balance_weight((string) ($r['balance_raw'] ?? '0'));
@@ -185,14 +164,12 @@ final class ReportController
     }
 
     /**
-     * Same balances as {@see locAllocationWeightsByLoanSegment}, aggregated by borrowing entity.
-     *
      * @return array<string, array<string, string>>
      */
-    private function locAllocationWeightsByEntitySegment(): array
+    private function locAllocationWeightsByEntitySegmentAsOf(string $balanceAsOfYmd): array
     {
         $weights = [];
-        foreach ($this->loanLedgerRowsForLocAllocation() as $r) {
+        foreach ($this->loanLedgerRowsForLocAllocationAsOf($balanceAsOfYmd) as $r) {
             $seg = $this->entitySegmentKey($r['entity_id'] ?? null);
             $bk = $this->depositToKey($r['funding_source'] ?? null);
             $w = report_principal_ledger_balance_weight((string) ($r['balance_raw'] ?? '0'));
@@ -206,26 +183,75 @@ final class ReportController
         return $weights;
     }
 
-    private function setLocAllocUnallocatedNoteIfNeeded(array $poolsByDeposit, array $allocBySegment): void
+    /**
+     * @return array<string, string>
+     */
+    private function accumulatedAllocatedLocBySegment(string $start, string $end, bool $byEntity): array
     {
-        $totalPools = report_sum_money_map($poolsByDeposit);
+        $alloc = [];
+        foreach (report_month_ym_keys_in_range($start, $end) as $ym) {
+            $win = report_alloc_loc_month_window($ym, $start, $end);
+            if ($win === null) {
+                continue;
+            }
+            $weights = $byEntity
+                ? $this->locAllocationWeightsByEntitySegmentAsOf($win['balanceAsOf'])
+                : $this->locAllocationWeightsByLoanSegmentAsOf($win['balanceAsOf']);
+            $rows = dbAll(
+                'SELECT ce.deposit_to, COALESCE(SUM(ce.amount), 0) AS loc_sum '
+                . 'FROM cash_events ce '
+                . 'WHERE ce.event_date >= ? AND ce.event_date <= ? AND ce.category = ? '
+                . 'GROUP BY ce.deposit_to',
+                [$win['sliceStart'], $win['sliceEnd'], 'loc_interest']
+            );
+            $monthPools = [];
+            foreach ($rows as $r) {
+                $k = $this->depositToKey($r['deposit_to'] ?? null);
+                $monthPools[$k] = report_loc_interest_pool_positive((string) ($r['loc_sum'] ?? '0'));
+            }
+            if ($monthPools === []) {
+                continue;
+            }
+            $monthAlloc = report_allocate_loc_interest_by_principal_weights($monthPools, $weights);
+            foreach ($monthAlloc as $seg => $v) {
+                $alloc[$seg] = checks_add_money_2($alloc[$seg] ?? '0.00', $v);
+            }
+        }
+
+        return $alloc;
+    }
+
+    private function periodLocInterestPositiveTotal(string $start, string $end): string
+    {
+        $row = dbOne(
+            'SELECT COALESCE(SUM(amount), 0) AS loc_sum FROM cash_events '
+            . 'WHERE event_date >= ? AND event_date <= ? AND category = ?',
+            [$start, $end, 'loc_interest']
+        );
+        $raw = is_array($row) ? (string) ($row['loc_sum'] ?? '0') : '0';
+
+        return report_loc_interest_pool_positive($raw);
+    }
+
+    private function setLocAllocUnallocatedNoteIfNeeded(string $periodLocPositive, array $allocBySegment): void
+    {
         $sumAlloc = '0.00';
         foreach ($allocBySegment as $v) {
             $sumAlloc = checks_add_money_2($sumAlloc, $v);
         }
         if (extension_loaded('bcmath')) {
-            $unalloc = bcsub($totalPools, $sumAlloc, 2);
+            $unalloc = bcsub($periodLocPositive, $sumAlloc, 2);
             if (bccomp($unalloc, '0.01', 2) < 0) {
                 return;
             }
         } else {
-            $unalloc = number_format((float) $totalPools - (float) $sumAlloc, 2, '.', '');
+            $unalloc = number_format((float) $periodLocPositive - (float) $sumAlloc, 2, '.', '');
             if ((float) $unalloc < 0.01) {
                 return;
             }
         }
         $this->locAllocUnallocatedNote = 'Roughly ' . checks_format_money_display_2($unalloc)
-            . ' of line-of-credit interest in this range is not attributed above (no loans with outstanding balance on record for that bank’s funding source to weight the split).';
+            . ' of line-of-credit interest in this range is not attributed above (no loans with outstanding balance on record for that bank’s funding source in the relevant month to weight the split).';
     }
 
     /**
@@ -365,10 +391,8 @@ final class ReportController
             ['interest', 'principal_in', 'principal_out', $start, $end]
         );
 
-        $pools = $this->locInterestPoolsByDeposit($start, $end);
-        $weights = $this->locAllocationWeightsByLoanSegment();
-        $allocBySeg = report_allocate_loc_interest_by_principal_weights($pools, $weights);
-        $this->setLocAllocUnallocatedNoteIfNeeded($pools, $allocBySeg);
+        $allocBySeg = $this->accumulatedAllocatedLocBySegment($start, $end, false);
+        $this->setLocAllocUnallocatedNoteIfNeeded($this->periodLocInterestPositiveTotal($start, $end), $allocBySeg);
 
         $out = [];
         foreach ($aggRows as $row) {
@@ -408,10 +432,8 @@ final class ReportController
             ['interest', 'principal_in', 'principal_out', $start, $end]
         );
 
-        $pools = $this->locInterestPoolsByDeposit($start, $end);
-        $weights = $this->locAllocationWeightsByEntitySegment();
-        $allocBySeg = report_allocate_loc_interest_by_principal_weights($pools, $weights);
-        $this->setLocAllocUnallocatedNoteIfNeeded($pools, $allocBySeg);
+        $allocBySeg = $this->accumulatedAllocatedLocBySegment($start, $end, true);
+        $this->setLocAllocUnallocatedNoteIfNeeded($this->periodLocInterestPositiveTotal($start, $end), $allocBySeg);
 
         $out = [];
         foreach ($aggRows as $row) {

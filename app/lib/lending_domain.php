@@ -289,6 +289,33 @@ function report_month_ym_keys_in_range(string $startYmd, string $endYmd): array
 }
 
 /**
+ * Dates for LOC allocation in one report month (Y-m): slice of cash events within the report range,
+ * and balance-as-of date (end of slice) for principal ledger weights.
+ *
+ * @return array{sliceStart: string, sliceEnd: string, balanceAsOf: string}|null
+ */
+function report_alloc_loc_month_window(string $ym, string $rangeStart, string $rangeEnd): ?array
+{
+    $monthFirst = $ym . '-01';
+    $dt = DateTimeImmutable::createFromFormat('Y-m-d', $monthFirst);
+    if (!$dt instanceof DateTimeImmutable) {
+        return null;
+    }
+    $monthLast = $dt->modify('last day of this month')->format('Y-m-d');
+    $sliceStart = $rangeStart > $monthFirst ? $rangeStart : $monthFirst;
+    $sliceEnd = $rangeEnd < $monthLast ? $rangeEnd : $monthLast;
+    if ($sliceStart > $sliceEnd) {
+        return null;
+    }
+
+    return [
+        'sliceStart' => $sliceStart,
+        'sliceEnd' => $sliceEnd,
+        'balanceAsOf' => $sliceEnd,
+    ];
+}
+
+/**
  * @return array{interestIn: string, locInterestOut: string, netIncome: string, principalPaid: string}
  */
 function report_metrics_from_category_sums(string $interestInRaw, string $locSumRaw, string $principalNetSumRaw): array
@@ -379,7 +406,8 @@ function report_metrics_from_interest_principal_alloc_loc(string $interestInRaw,
 
 /**
  * Rough LOC allocation: for each bank with pool P, split P across segments in proportion to per-segment weights at that bank
- * (e.g. loan/entity report uses outstanding principal by funding source).
+ * (e.g. loan/entity report uses outstanding principal by funding source, often as-of month-end within
+ * the report range so each month’s LOC is split with that month’s balances).
  *
  * @param array<string, string> $poolsByBank        deposit_to key (empty string when null) => positive pool
  * @param array<string, array<string, string>> $weightsBySegment segment key => bank key => positive weight

@@ -45,10 +45,10 @@ Totals by bank from <strong><?php echo e($start); ?></strong> through <strong><?
 Each row is one calendar month and bank. Only month–bank combinations with activity in range are listed. Same bank field as <strong>Deposit to</strong> on cash events.
 <?php elseif ($reportType === 'loan'): ?>
 Totals by loan for <strong><?php echo e($start); ?></strong> through <strong><?php echo e($end); ?></strong>. Rows with no loan aggregate bank or other events not tied to a loan.
-<strong>LOC interest out</strong> is a rough allocation: for each bank, period LOC expense is split across loans in proportion to <strong>current balance</strong> (principal in + out on the loan, same as the Loans list) for loans funded from that bank (<strong>Funding source</strong>, same values as <strong>Deposit to</strong>) vs total such balance for that bank.
+<strong>LOC interest out</strong> is a rough allocation: for each calendar month in the range, that month’s LOC is split using <strong>balances as of the end of that month within the report</strong> (principal in + out through that date, as on the Loans list) for loans funded from that bank (<strong>Funding source</strong>, same values as <strong>Deposit to</strong>); allocations are summed across months.
 <?php else: ?>
 Totals by borrowing entity for <strong><?php echo e($start); ?></strong> through <strong><?php echo e($end); ?></strong>, using each loan’s entity. Events not on a loan are grouped separately.
-<strong>LOC interest out</strong> uses the same allocation rule by entity: each bank’s share uses sums of loan current balances for that entity and funding source.
+<strong>LOC interest out</strong> uses the same rule by entity: each month, loan balances (through that month’s in-range end date) roll up by entity and funding source before splitting that month’s LOC.
 <?php endif; ?>
 Net income is interest in minus LOC interest out (minus allocated LOC for by-loan and by-entity views). Principal paid is the sum of principal in and principal out (for reference).</p>
 <div class="overflow-x-auto overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
