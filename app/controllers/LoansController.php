@@ -104,6 +104,127 @@ final class LoansController
         ];
     }
 
+    private static function loanFormParseDateYmd(string $s): ?string
+    {
+        $s = trim($s);
+        if ($s === '') {
+            return null;
+        }
+        $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
+
+        return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
+    }
+
+    private static function loanFormParseDecimalTwoPlaces(string $s): ?string
+    {
+        $s = trim($s);
+        if ($s === '') {
+            return null;
+        }
+        if (!preg_match('/^-?\d+(\.\d{1,2})?$/', $s)) {
+            return null;
+        }
+
+        return $s;
+    }
+
+    /**
+     * Shared POST parsing/validation for loan create and update (invalid → caller redirects).
+     *
+     * @return array{
+     *     entityId: int,
+     *     name: string,
+     *     funding: string,
+     *     origin: string,
+     *     maturity: string|null,
+     *     paymentType: string,
+     *     principalStr: string,
+     *     rateStr: string,
+     *     prepaidAmount: string|null,
+     *     prepaidDate: string|null,
+     *     checksFields: array{monthly_interest: ?string, interest_calc_method: string, principal_payment_monthly: ?string}
+     * }|null
+     */
+    private function parseLoanFormSavePayload(): ?array
+    {
+        $entityId = (int) ($_POST['entity_id'] ?? 0);
+        $name = trim((string) ($_POST['name'] ?? ''));
+        $funding = (string) ($_POST['funding_source'] ?? '');
+        $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
+        $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
+        $paymentType = trim((string) ($_POST['payment_type'] ?? ''));
+        $principalRaw = loan_normalize_decimal_input((string) ($_POST['principal_amount'] ?? ''));
+        $rateRaw = loan_normalize_decimal_input((string) ($_POST['annual_interest_rate'] ?? ''), true);
+        $prepaidAmtRaw = loan_normalize_decimal_input((string) ($_POST['prepaid_interest_amount'] ?? ''));
+        $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
+
+        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
+            return null;
+        }
+
+        $origin = self::loanFormParseDateYmd($originRaw);
+        if ($origin === null) {
+            return null;
+        }
+
+        $maturity = $maturityRaw === '' ? null : self::loanFormParseDateYmd($maturityRaw);
+        if ($maturityRaw !== '' && $maturity === null) {
+            return null;
+        }
+
+        $checksFields = loan_parse_checks_fields_from_post();
+        if ($checksFields === false) {
+            return null;
+        }
+
+        $principalStr = '0.00';
+        $rateStr = '0.00';
+        $prepaidAmount = null;
+        $prepaidDate = null;
+
+        if ($paymentType === 'prepaid') {
+            $prepaidAmount = self::loanFormParseDecimalTwoPlaces($prepaidAmtRaw);
+            $prepaidDate = self::loanFormParseDateYmd($prepaidDateRaw);
+            if ($prepaidAmount === null || $prepaidDate === null) {
+                return null;
+            }
+            if (extension_loaded('bcmath')) {
+                if (bccomp($prepaidAmount, '0', 2) !== 1) {
+                    return null;
+                }
+            } elseif ((float) $prepaidAmount <= 0.0) {
+                return null;
+            }
+            $parsed = loan_principal_and_annual_for_prepaid_save($principalRaw, $rateRaw, $checksFields);
+            if ($parsed === false) {
+                return null;
+            }
+            $principalStr = $parsed['principalStr'];
+            $rateStr = $parsed['rateStr'];
+        } else {
+            $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
+            if ($parsed === false) {
+                return null;
+            }
+            $principalStr = $parsed['principalStr'];
+            $rateStr = $parsed['rateStr'];
+        }
+
+        return [
+            'entityId' => $entityId,
+            'name' => $name,
+            'funding' => $funding,
+            'origin' => $origin,
+            'maturity' => $maturity,
+            'paymentType' => $paymentType,
+            'principalStr' => $principalStr,
+            'rateStr' => $rateStr,
+            'prepaidAmount' => $prepaidAmount,
+            'prepaidDate' => $prepaidDate,
+            'checksFields' => $checksFields,
+        ];
+    }
+
     public function create(): void
     {
         $title = 'New loan';
@@ -125,105 +246,35 @@ final class LoansController
     {
         csrf_verify_or_die();
 
-        $parseDate = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '') {
-                return null;
-            }
-            $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
-
-            return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
-        };
-
-        $parseDecimal = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '') {
-                return null;
-            }
-            if (!preg_match('/^-?\d+(\.\d{1,2})?$/', $s)) {
-                return null;
-            }
-
-            return $s;
-        };
-
-        $entityId = (int) ($_POST['entity_id'] ?? 0);
-        $name = trim((string) ($_POST['name'] ?? ''));
-        $funding = (string) ($_POST['funding_source'] ?? '');
-        $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
-        $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
-        $paymentType = trim((string) ($_POST['payment_type'] ?? ''));
-        $principalRaw = loan_normalize_decimal_input((string) ($_POST['principal_amount'] ?? ''));
-        $rateRaw = loan_normalize_decimal_input((string) ($_POST['annual_interest_rate'] ?? ''), true);
-        $prepaidAmtRaw = loan_normalize_decimal_input((string) ($_POST['prepaid_interest_amount'] ?? ''));
-        $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
-
-        $redirect = static function (): void {
+        $payload = $this->parseLoanFormSavePayload();
+        if ($payload === null) {
             header('Location: /loans/new?invalid=1');
             exit;
-        };
-
-        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
-            $redirect();
         }
 
-        $origin = $parseDate($originRaw);
-        if ($origin === null) {
-            $redirect();
-        }
-
-        $maturity = $maturityRaw === '' ? null : $parseDate($maturityRaw);
-        if ($maturityRaw !== '' && $maturity === null) {
-            $redirect();
-        }
-
-        $checksFields = loan_parse_checks_fields_from_post();
-        if ($checksFields === false) {
-            $redirect();
-        }
-
-        $principalStr = '0.00';
-        $rateStr = '0.00';
-        $prepaidAmount = null;
-        $prepaidDate = null;
-
-        if ($paymentType === 'prepaid') {
-            $prepaidAmount = $parseDecimal($prepaidAmtRaw);
-            $prepaidDate = $parseDate($prepaidDateRaw);
-            if ($prepaidAmount === null || $prepaidDate === null) {
-                $redirect();
-            }
-            if (extension_loaded('bcmath')) {
-                if (bccomp($prepaidAmount, '0', 2) !== 1) {
-                    $redirect();
-                }
-            } elseif ((float) $prepaidAmount <= 0.0) {
-                $redirect();
-            }
-            $parsed = loan_principal_and_annual_for_prepaid_save($principalRaw, $rateRaw, $checksFields);
-            if ($parsed === false) {
-                $redirect();
-            }
-            $principalStr = $parsed['principalStr'];
-            $rateStr = $parsed['rateStr'];
-        } else {
-            $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
-            if ($parsed === false) {
-                $redirect();
-            }
-            $principalStr = $parsed['principalStr'];
-            $rateStr = $parsed['rateStr'];
-        }
+        $entityId = $payload['entityId'];
+        $name = $payload['name'];
+        $funding = $payload['funding'];
+        $origin = $payload['origin'];
+        $maturity = $payload['maturity'];
+        $paymentType = $payload['paymentType'];
+        $principalStr = $payload['principalStr'];
+        $rateStr = $payload['rateStr'];
+        $prepaidAmount = $payload['prepaidAmount'];
+        $prepaidDate = $payload['prepaidDate'];
+        $checksFields = $payload['checksFields'];
 
         $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
         $chk->execute([$entityId]);
         if ($chk->fetch() === false) {
-            $redirect();
+            header('Location: /loans/new?invalid=1');
+            exit;
         }
 
         $createFunding = isset($_POST['create_funding_principal_out']);
         if ($createFunding && !schema_table_has_column('loans', 'funding_principal_out_posted')) {
-            $redirect();
+            header('Location: /loans/new?invalid=1');
+            exit;
         }
 
         $idx = loan_loans_column_name_index();
@@ -249,10 +300,12 @@ final class LoansController
         if ($createFunding) {
             if (extension_loaded('bcmath')) {
                 if (bccomp($principalStr, '0', 2) !== 1) {
-                    $redirect();
+                    header('Location: /loans/new?invalid=1');
+                    exit;
                 }
             } elseif ((float) $principalStr <= 0.0) {
-                $redirect();
+                header('Location: /loans/new?invalid=1');
+                exit;
             }
         }
 
@@ -380,28 +433,6 @@ final class LoansController
     {
         csrf_verify_or_die();
 
-        $parseDate = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '') {
-                return null;
-            }
-            $d = DateTimeImmutable::createFromFormat('Y-m-d', $s);
-
-            return $d instanceof DateTimeImmutable && $d->format('Y-m-d') === $s ? $s : null;
-        };
-
-        $parseDecimal = static function (string $s): ?string {
-            $s = trim($s);
-            if ($s === '') {
-                return null;
-            }
-            if (!preg_match('/^-?\d+(\.\d{1,2})?$/', $s)) {
-                return null;
-            }
-
-            return $s;
-        };
-
         $loanId = (int) ($_POST['id'] ?? 0);
         if ($loanId < 1) {
             header('Location: /loans');
@@ -414,77 +445,28 @@ final class LoansController
             $fundingPostedFlag = $fpr !== null && (int) ($fpr['v'] ?? 0) === 1;
         }
 
-        $redirect = static function (int $lid): void {
-            header('Location: /loans/edit?id=' . $lid . '&invalid=1');
+        $payload = $this->parseLoanFormSavePayload();
+        if ($payload === null) {
+            header('Location: /loans/edit?id=' . $loanId . '&invalid=1');
             exit;
-        };
-
-        $entityId = (int) ($_POST['entity_id'] ?? 0);
-        $name = trim((string) ($_POST['name'] ?? ''));
-        $funding = (string) ($_POST['funding_source'] ?? '');
-        $originRaw = trim((string) ($_POST['origin_date'] ?? ''));
-        $maturityRaw = trim((string) ($_POST['maturity_date'] ?? ''));
-        $paymentType = trim((string) ($_POST['payment_type'] ?? ''));
-        $principalRaw = loan_normalize_decimal_input((string) ($_POST['principal_amount'] ?? ''));
-        $rateRaw = loan_normalize_decimal_input((string) ($_POST['annual_interest_rate'] ?? ''), true);
-        $prepaidAmtRaw = loan_normalize_decimal_input((string) ($_POST['prepaid_interest_amount'] ?? ''));
-        $prepaidDateRaw = trim((string) ($_POST['prepaid_interest_date'] ?? ''));
-
-        if ($entityId < 1 || $name === '' || !in_array($funding, ['JPM', 'NTRS'], true) || !in_array($paymentType, ['interest_only', 'prepaid', 'amortizing'], true)) {
-            $redirect($loanId);
         }
 
-        $origin = $parseDate($originRaw);
-        if ($origin === null) {
-            $redirect($loanId);
-        }
-
-        $maturity = $maturityRaw === '' ? null : $parseDate($maturityRaw);
-        if ($maturityRaw !== '' && $maturity === null) {
-            $redirect($loanId);
-        }
-
-        $checksFields = loan_parse_checks_fields_from_post();
-        if ($checksFields === false) {
-            $redirect($loanId);
-        }
-
-        $principalStr = '0.00';
-        $rateStr = '0.00';
-        $prepaidAmount = null;
-        $prepaidDate = null;
-
-        if ($paymentType === 'prepaid') {
-            $prepaidAmount = $parseDecimal($prepaidAmtRaw);
-            $prepaidDate = $parseDate($prepaidDateRaw);
-            if ($prepaidAmount === null || $prepaidDate === null) {
-                $redirect($loanId);
-            }
-            if (extension_loaded('bcmath')) {
-                if (bccomp($prepaidAmount, '0', 2) !== 1) {
-                    $redirect($loanId);
-                }
-            } elseif ((float) $prepaidAmount <= 0.0) {
-                $redirect($loanId);
-            }
-            $parsed = loan_principal_and_annual_for_prepaid_save($principalRaw, $rateRaw, $checksFields);
-            if ($parsed === false) {
-                $redirect($loanId);
-            }
-            $principalStr = $parsed['principalStr'];
-            $rateStr = $parsed['rateStr'];
-        } else {
-            $parsed = loan_principal_and_annual_for_io_amortizing_save($principalRaw, $rateRaw, $checksFields);
-            if ($parsed === false) {
-                $redirect($loanId);
-            }
-            $principalStr = $parsed['principalStr'];
-            $rateStr = $parsed['rateStr'];
-        }
+        $entityId = $payload['entityId'];
+        $name = $payload['name'];
+        $funding = $payload['funding'];
+        $origin = $payload['origin'];
+        $maturity = $payload['maturity'];
+        $paymentType = $payload['paymentType'];
+        $principalStr = $payload['principalStr'];
+        $rateStr = $payload['rateStr'];
+        $prepaidAmount = $payload['prepaidAmount'];
+        $prepaidDate = $payload['prepaidDate'];
+        $checksFields = $payload['checksFields'];
 
         $postFunding = isset($_POST['post_funding_principal_out']);
         if ($postFunding && !schema_table_has_column('loans', 'funding_principal_out_posted')) {
-            $redirect($loanId);
+            header('Location: /loans/edit?id=' . $loanId . '&invalid=1');
+            exit;
         }
         if ($postFunding && $fundingPostedFlag) {
             $postFunding = false;
@@ -492,17 +474,20 @@ final class LoansController
         if ($postFunding) {
             if (extension_loaded('bcmath')) {
                 if (bccomp($principalStr, '0', 2) !== 1) {
-                    $redirect($loanId);
+                    header('Location: /loans/edit?id=' . $loanId . '&invalid=1');
+                    exit;
                 }
             } elseif ((float) $principalStr <= 0.0) {
-                $redirect($loanId);
+                header('Location: /loans/edit?id=' . $loanId . '&invalid=1');
+                exit;
             }
         }
 
         $chk = db()->prepare('SELECT id FROM entities WHERE id = ?');
         $chk->execute([$entityId]);
         if ($chk->fetch() === false) {
-            $redirect($loanId);
+            header('Location: /loans/edit?id=' . $loanId . '&invalid=1');
+            exit;
         }
 
         $exists = db()->prepare('SELECT id FROM loans WHERE id = ?');
@@ -522,16 +507,18 @@ final class LoansController
                 $existingClosedRaw = (string) $exRow['cd'];
             }
             if ($existingClosedRaw !== null) {
-                $parsedExisting = $parseDate($existingClosedRaw);
+                $parsedExisting = self::loanFormParseDateYmd($existingClosedRaw);
                 $finalClosed = $parsedExisting !== null ? $parsedExisting : $existingClosedRaw;
             } elseif (isset($_POST['mark_loan_closed'])) {
                 $cRaw = trim((string) ($_POST['closed_date'] ?? ''));
-                $finalClosed = $parseDate($cRaw);
+                $finalClosed = self::loanFormParseDateYmd($cRaw);
                 if ($finalClosed === null) {
-                    $redirect($loanId);
+                    header('Location: /loans/edit?id=' . $loanId . '&invalid=1');
+                    exit;
                 }
                 if (!loan_eligible_to_mark_closed_from_ledger($loanId)) {
-                    $redirect($loanId);
+                    header('Location: /loans/edit?id=' . $loanId . '&invalid=1');
+                    exit;
                 }
             }
         }
