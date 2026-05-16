@@ -12,6 +12,7 @@ if (!extension_loaded('pdo') || !extension_loaded('pdo_mysql')) {
 $projectRoot = dirname(__DIR__);
 
 require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'env.php';
+require_once $projectRoot . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'lender_config.php';
 $autoload = $projectRoot . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 if (is_readable($autoload)) {
     require_once $autoload;
