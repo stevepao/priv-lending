@@ -2,7 +2,7 @@ services:
   web:
     build: .
     ports:
-      - "8080:80"
+      - "8098:80"
     volumes:
       # Entire repository → /var/www/html (app/, public/, migrations/, vendor/, …)
       - .:/var/www/html
@@ -13,6 +13,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - default
+      - proxy-tier
 
   db:
     image: mysql:8.0
@@ -32,6 +35,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    networks:
+      - default
 
 volumes:
   mysql_data:
+
+networks:
+  default:
+  proxy-tier:
+    external: true
