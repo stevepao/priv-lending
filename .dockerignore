@@ -1,0 +1,6 @@
+.git
+.gitignore
+docker/mysql-data
+dumps
+*.sql
+!migrations/**/*.sql

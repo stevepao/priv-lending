@@ -5,6 +5,17 @@
 /vendor
 composer.phar
 
+# Docker / local database
+docker/mysql-data/
+mysql_data/
+.docker/
+
+# Local SQL dumps and backups (keep tracked files under migrations/)
+/dumps/
+/backups/
+*.sql
+!migrations/*.sql
+
 # macOS
 .DS_Store
 .AppleDouble
