@@ -2,8 +2,6 @@ services:
   web:
     build: .
     restart: unless-stopped
-    ports:
-      - "8098:80"
     volumes:
       # Entire repository → /var/www/html (app/, public/, migrations/, vendor/, …)
       - .:/var/www/html
