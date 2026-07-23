@@ -9,6 +9,7 @@
 /** @var string $payoffGoodThruDisp */
 /** @var string $interestFullRange */
 /** @var string $interestPerdiemRange */
+/** @var bool $showFullMonthInterest */
 /** @var string $principalDisp */
 /** @var string $fullInterestDisp */
 /** @var string $perdiemInterestDisp */
@@ -72,7 +73,9 @@ if (LENDER_CITY !== '' || LENDER_STATE !== '' || LENDER_ZIP !== '') {
 <tr><td>Payoff good to:</td><td class="num"><?php echo e($payoffGoodThruDisp); ?></td></tr>
 <tr><td>Property:</td><td class="num"><?php echo e($propertyLine); ?></td></tr>
 <tr><td>Principal</td><td class="num"><?php echo e($principalDisp); ?></td></tr>
+<?php if ($showFullMonthInterest): ?>
 <tr><td>Interest - <?php echo e($interestFullRange); ?></td><td class="num"><?php echo e($fullInterestDisp); ?></td></tr>
+<?php endif; ?>
 <tr><td>Interest - <?php echo e($interestPerdiemRange); ?></td><td class="num"><?php echo e($perdiemInterestDisp); ?></td></tr>
 <tr class="total"><td>Total amount due:</td><td class="num"><?php echo e($totalDueDisp); ?></td></tr>
 <tr class="last"><td>Daily interest rate</td><td class="num"><?php echo e($dailyRateDisp); ?></td></tr>

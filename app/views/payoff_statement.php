@@ -10,6 +10,8 @@
 /** @var string $payoffGoodThruDisp */
 /** @var string $interestFullRange */
 /** @var string $interestPerdiemRange */
+/** @var bool $showFullMonthInterest */
+/** @var bool $lastMonthInterestPaid */
 /** @var string $principalDisp */
 /** @var string $fullInterestDisp */
 /** @var string $perdiemInterestDisp */
@@ -74,7 +76,9 @@ if (LENDER_CITY !== '' || LENDER_STATE !== '' || LENDER_ZIP !== '') {
 <div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Payoff good to:</span><span class="text-right tabular-nums"><?php echo e($payoffGoodThruDisp); ?></span></div>
 <div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Property:</span><span class="text-right"><?php echo e($propertyLine); ?></span></div>
 <div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Principal</span><span class="font-medium text-right tabular-nums"><?php echo e($principalDisp); ?></span></div>
+<?php if ($showFullMonthInterest): ?>
 <div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Interest - <?php echo e($interestFullRange); ?></span><span class="text-right tabular-nums"><?php echo e($fullInterestDisp); ?></span></div>
+<?php endif; ?>
 <div class="flex justify-between gap-6 border-b border-slate-200 py-2"><span>Interest - <?php echo e($interestPerdiemRange); ?></span><span class="text-right tabular-nums"><?php echo e($perdiemInterestDisp); ?></span></div>
 <div class="flex justify-between gap-6 border-b border-slate-200 py-3"><span class="font-semibold">Total amount due:</span><span class="font-semibold text-right tabular-nums"><?php echo e($totalDueDisp); ?></span></div>
 <div class="flex justify-between gap-6 py-2"><span>Daily interest rate</span><span class="text-right tabular-nums"><?php echo e($dailyRateDisp); ?></span></div>
@@ -85,6 +89,7 @@ $pdfQs = http_build_query([
     'loan_id' => $loanId,
     'date_quoted' => $dateQuotedYmd,
     'payoff_good_thru' => $payoffGoodThruYmd,
+    'last_month_interest_paid' => $lastMonthInterestPaid ? '1' : '0',
 ]);
 ?>
 <div class="flex justify-center pt-6 print:hidden">

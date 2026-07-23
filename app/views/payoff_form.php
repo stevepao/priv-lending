@@ -28,6 +28,12 @@
 <input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="date_quoted" name="date_quoted" type="date" required value="<?php echo e($dateQuotedDefault); ?>"></div>
 <div><label class="mb-1 block text-sm font-medium text-slate-700" for="payoff_good_thru">Payoff good through</label>
 <input class="w-full rounded border border-slate-300 px-3 py-2 text-sm" id="payoff_good_thru" name="payoff_good_thru" type="date" required value="<?php echo e($payoffGoodThruDefault); ?>"></div>
+<div class="rounded border border-slate-200 bg-slate-50 px-3 py-3">
+<label class="flex items-start gap-2 text-sm text-slate-800" for="last_month_interest_paid">
+<input class="mt-0.5" id="last_month_interest_paid" name="last_month_interest_paid" type="checkbox" value="1">
+<span><span class="font-medium">Last month’s interest already paid</span><span class="mt-0.5 block text-xs font-normal text-slate-600">Omit the prior full billing-cycle interest line (e.g. when that month’s check was just posted). Per-diem for the current cycle still applies.</span></span>
+</label>
+</div>
 <div class="flex gap-2"><button class="rounded bg-slate-900 px-3 py-2 text-sm text-white" type="submit"<?php echo $loanOptions === [] ? ' disabled' : ''; ?>>Generate statement</button>
 <a class="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700" href="/">Cancel</a></div>
 </form>

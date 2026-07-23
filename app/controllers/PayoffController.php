@@ -48,8 +48,11 @@ final class PayoffController
 
         $dateQuoted = self::payoffParseYmd($dateQuotedRaw);
         $payoffGoodThru = self::payoffParseYmd($payoffGoodThruRaw);
+        $lastMonthInterestPaid = isset($_POST['last_month_interest_paid'])
+            && (string) $_POST['last_month_interest_paid'] !== ''
+            && (string) $_POST['last_month_interest_paid'] !== '0';
 
-        $viewData = self::buildPayoffStatementViewData($loanId, $dateQuoted, $payoffGoodThru);
+        $viewData = self::buildPayoffStatementViewData($loanId, $dateQuoted, $payoffGoodThru, $lastMonthInterestPaid);
         if ($viewData === null) {
             header('Location: /payoff?invalid=1');
             exit;
@@ -71,8 +74,10 @@ final class PayoffController
         $loanId = (int) ($_GET['loan_id'] ?? 0);
         $dateQuoted = self::payoffParseYmd(trim((string) ($_GET['date_quoted'] ?? '')));
         $payoffGoodThru = self::payoffParseYmd(trim((string) ($_GET['payoff_good_thru'] ?? '')));
+        $lastMonthRaw = strtolower(trim((string) ($_GET['last_month_interest_paid'] ?? '')));
+        $lastMonthInterestPaid = in_array($lastMonthRaw, ['1', 'true', 'yes', 'on'], true);
 
-        $viewData = self::buildPayoffStatementViewData($loanId, $dateQuoted, $payoffGoodThru);
+        $viewData = self::buildPayoffStatementViewData($loanId, $dateQuoted, $payoffGoodThru, $lastMonthInterestPaid);
         if ($viewData === null) {
             header('Location: /payoff?invalid=1');
             exit;
@@ -111,8 +116,12 @@ final class PayoffController
     /**
      * @return array<string, mixed>|null
      */
-    private static function buildPayoffStatementViewData(int $loanId, ?string $dateQuoted, ?string $payoffGoodThru): ?array
-    {
+    private static function buildPayoffStatementViewData(
+        int $loanId,
+        ?string $dateQuoted,
+        ?string $payoffGoodThru,
+        bool $lastMonthInterestPaid = false
+    ): ?array {
         if ($loanId < 1 || $dateQuoted === null || $payoffGoodThru === null) {
             return null;
         }
@@ -181,7 +190,9 @@ final class PayoffController
             $annualRateStr,
             $monthlyInterestStoredStr
         );
-        $fullInterestAmount = checks_normalize_money_2($monthlyForInterest);
+        $fullInterestAmount = $lastMonthInterestPaid
+            ? '0.00'
+            : checks_normalize_money_2($monthlyForInterest);
 
         $daysInclusive = self::payoffInclusiveCalendarDays($perdiemStart, $perdiemEnd);
         $dailyRate = self::payoffDailyRateFromMonthly($monthlyForInterest);
@@ -222,6 +233,8 @@ final class PayoffController
             'payoffGoodThruDisp' => self::payoffFormatDateMdY($payoffGoodThru),
             'interestFullRange' => $fullStartMd . ' - ' . $fullEndMd,
             'interestPerdiemRange' => $perdiemStartMd . ' - ' . $perdiemEndMd,
+            'showFullMonthInterest' => !$lastMonthInterestPaid,
+            'lastMonthInterestPaid' => $lastMonthInterestPaid,
             'principalDisp' => self::payoffFormatMoneyUsd($principalBalance),
             'fullInterestDisp' => self::payoffFormatMoneyUsd($fullInterestAmount),
             'perdiemInterestDisp' => self::payoffFormatMoneyUsd($perdiemInterestAmount),
